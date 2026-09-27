@@ -1,0 +1,6 @@
+# Copy to config/paths.yaml (git-ignored) and edit.
+# Petrel export: horizon .ts files here, fault .ts files in DATA_DIR/Faults
+DATA_DIR: ~/SeisSol/ibdp_horizons-faults_petrel_2021/IBDP_Horizons-Faults_Petrel_2021/data
+REPORTS_DIR: ~/SeisSol/ibdp_reports/IBDP_Reports/data
+# generated meshes, material grids and scenario inputs go to WORK_DIR/<scenario>/
+WORK_DIR: ~/decatur-work

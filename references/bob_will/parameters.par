@@ -1,0 +1,129 @@
+! =============================================================================
+! parameters.par — Decatur CO2 storage site, dynamic rupture (Hannes fault)
+! =============================================================================
+! Based on the SeisSol Examples TPV5 parameters.par (the FL = 16 / linear
+! slip-weakening, overstress-nucleation analogue), adapted for the Decatur
+! teaching case:
+!   * friction law FL = 16 (LSW), nucleation by the overstressed shear patch
+!     defined in fault_overstress.yaml (no forced rupture -> no t_0 needed,
+!     exactly as in TPV5);
+!   * material from material.yaml (bimaterial: Mt. Simon sandstone over
+!     fractured Precambrian rhyolite, interface at 1950 m);
+!   * Local Time Stepping ON (ClusteredLTS = 2) — strongly recommended given
+!     the large element-size contrast (10 m near faults -> ~500 m at boundary);
+!   * ALL fault outputs written (Elementwise / ParaView), OutputMask all on;
+!   * NO ascii fault receivers: OutputPointType = 4 (ParaView only), so
+!     faultreceivers.dat is not read. A dummy &Pickpoint block is kept below
+!     purely for completeness and is INACTIVE.
+! =============================================================================
+
+&equations
+! yaml file defining spatial dependence of material properties
+MaterialFileName = 'material.yaml'
+Plasticity = 0                  ! 0: off (elastic). 1: off-fault plasticity
+numflux = 'godunov'             ! bulk numerical flux ('godunov' or 'rusanov')
+numfluxnearfault = 'godunov'    ! flux for cells adjacent to the fault
+/
+
+&IniCondition
+/
+
+&DynamicRupture
+FL = 16                         ! Friction law: 16 = linear slip-weakening
+ModelFileName = 'fault_over_stress_pressure.yaml'   ! stress + friction + (disabled) nucleation
+                                ! (swap to 'fault.yaml' for the pore-pressure variant)
+
+! Reference vector used to fix the sign of the fault normal / strike-dip basis.
+! refPointMethod = 1 -> (XRef,YRef,ZRef) is a DIRECTION; the fault normal is
+! oriented to have a positive dot product with it. This only affects the SIGN
+! convention of the strike/dip output (and of any fault-aligned Tnuc_s seed);
+! it does NOT change whether the global-frame s_xy overstress nucleates.
+refPointMethod = 1
+XRef =  1.0                     ! +East
+YRef =  0.0
+ZRef =  0.0
+
+OutputPointType = 4             ! 0: none, 3: ascii receivers, 4: ParaView, 5: 3+4
+                                ! -> 4 gives the full on-fault output, no .dat file
+SlipRateOutputType = 1          ! 1: slip rate from tractions+failure criterion
+                                ! 0: smoother, from velocity difference across fault
+/
+
+! ---------------------------------------------------------------------------
+! Full on-fault (Elementwise / ParaView) output.  See:
+! https://seissol.readthedocs.io/en/latest/fault-output.html
+! ---------------------------------------------------------------------------
+&Elementwise
+printtimeinterval_sec = 0.05    ! write a fault snapshot every 0.05 s
+                                ! (~10-15 snapshots during the < 1 s rupture)
+! OutputMask bits (1 = on). All on = every available LSW fault quantity:
+!   1 SRs,SRd  slip rate (strike,dip)     2 T_s,T_d,P_n  current tractions
+!   3 u_n      fault-normal velocity      4 Mud,StV      friction coeff & state
+!   5 Ts0,Td0,Pn0 total tractions         6 Sls,Sld      slip (strike,dip)
+!   7 Vr       rupture velocity           8 ASl          accumulated slip
+!   9 PSR      peak slip rate            10 RT           rupture time
+!  11 DS       dynamic-stress time       (12 = P_f,Tmp: thermal pressurization only, omitted)
+OutputMask = 1 1 1 1 1 1 1 1 1 1 1
+refinement_strategy = 2         ! subdivide each fault triangle into 4 for output
+refinement = 1
+/
+
+! ---------------------------------------------------------------------------
+! Ascii fault receivers — INACTIVE (OutputPointType = 4 above disables this).
+! Kept as a dummy only; no faultreceivers.dat is required to run.
+! ---------------------------------------------------------------------------
+&Pickpoint
+printtimeinterval = 1
+OutputMask = 1 1 1 1
+PPFileName = 'dummy_faultreceivers.dat'   ! not read while OutputPointType = 4
+/
+
+&SourceType
+/
+
+&SpongeLayer
+/
+
+&MeshNml
+MeshFile = 'mesh.puml.hdf5'       ! from: pumgen -s msh2 mesh.msh mesh
+meshgenerator = 'PUML'
+/
+
+&Discretization
+CFL = 0.5                       ! Courant number; dt is derived from this + mesh
+ClusteredLTS = 2                ! 1 = global time stepping; 2,3,5,... = LTS (use 2)
+/
+
+&Output
+OutputFile = 'output/decatur'
+! --- volume wavefield output: OFF (not requested; very large on this mesh) ---
+WavefieldOutput = 0
+iOutputMask = 0 0 0 0 0 0 1 1 1
+! --- off-fault (volume) point receivers: OFF.  This module defaults to ON in
+!     recent SeisSol, so it MUST be turned off explicitly when no RFileName is
+!     given, otherwise SeisSol aborts ("off-fault receiver output is enabled,
+!     but no receiver point file was given"). ---
+ReceiverOutput = 0
+! --- checkpointing: OFF (also silences the checkpointinterval deprecation warning) ---
+Checkpoint = 0
+! --- free-surface (ground motion) output: OFF; set to 1 to enable ---
+SurfaceOutput = 0
+SurfaceOutputRefinement = 1
+SurfaceOutputInterval = 0.5
+xdmfWriterBackend = 'HDF5'     ! 'hdf5' also valid if SeisSol was built with HDF5
+! --- energy output (CSV: seismic moment, frictional & radiated energy, etc.) ---
+EnergyOutput = 1
+EnergyTerminalOutput = 1
+EnergyOutputInterval = 0.01     ! fine, to resolve the moment-rate of the short event
+/
+
+&AbortCriteria
+EndTime = 2.0                   ! generous; the M~3 rupture finishes in < 1 s.
+                                ! For the timing-calibration run, set this to ~0.1 s.
+/
+
+&Analysis
+/
+
+&Debugging
+/

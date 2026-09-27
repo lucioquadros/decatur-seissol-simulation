@@ -1,0 +1,240 @@
+# =============================================================================
+# fault_bobwill_overpressure.yaml — Decatur CO2 storage, dynamic rupture
+#   REALISTIC injection-triggered nucleation: near-critical background
+#   + observed-magnitude overpressure (dP) + small localizing shear seed
+#   >>> targeted on the BOB WILL fault, in the BASEMENT (depth > 1950 m) <<<
+# =============================================================================
+#
+# Friction law:  16 (linear slip-weakening; parameters.par, FL = 16)
+# Mesh frame:    local re-centred coords from build_mesh.py
+#                (X = East, Y = North, Z = up; surface Z = 0)
+# Stress sign:   tension-positive (compression NEGATIVE)
+# Cohesion sign: NEGATIVE in SeisSol convention
+#
+# -----------------------------------------------------------------------------
+# WHY THIS FILE EXISTS (physics rationale)
+# -----------------------------------------------------------------------------
+# Observed overpressure at Decatur is SMALL: ~142 psi ~= 0.98 MPa near the well
+# (Rathmaier et al. 2024), injection kept well below fracture pressure. A dP of
+# ~1 MPa is worth only mu*dP ~= 0.6 MPa of Coulomb weakening, which CANNOT fail
+# a fault on its own. It can only tip a fault that already sits within ~mu*dP of
+# failure. So the realistic recipe is:
+#
+#   (1) BACKGROUND tuned NEAR-CRITICAL on a WELL-ORIENTED fault. Bob Will
+#       strikes 101.3 deg, ~31 deg from SHmax (N70E) -> near-optimal for slip
+#       (optimal ~= 45 - phi/2 ~= 30 deg for mu=0.6). With SHmax = 47.7 MPa/km
+#       (inside the published 40-82 MPa/km range; Bauer 2016 / Lahann 2017 /
+#       Langet 2020) Bob Will's deepest basement point sits at CFS = -0.80 MPa
+#       -- stable, but on the brink. Every other fault stays sub-critical
+#       (next-closest Sherliyn at -0.40 MPa), so NOTHING fails spontaneously.
+#
+#   (2) OVERPRESSURE dP (the physical trigger). Decatur evidence shows pressure
+#       migrates LOCALLY into the basement along faults / where the Argenta
+#       basal seal is thin or absent (Silva 2024; Bondarenko 2022, 2025;
+#       Goertz-Allmann 2017); >90% of microseismicity was in the basement. So a
+#       basement dP on Bob Will is physically motivated. dP is added ISOTROPIC
+#       to the effective normal components -> reduces effective normal stress by
+#       dP on the fault (shear untouched). dP = 1.0 MPa (observed scale) gives
+#       mu*dP ~= 0.6 MPa, lifting the patch from CFS -0.77 to -0.17 MPa.
+#
+#   (3) SHEAR SEED dTau (small, localizing). A small along-fault shear
+#       overstress closes the last ~0.2 MPa and, more importantly, LOCALIZES
+#       nucleation to a compact, well-resolved patch instead of letting the
+#       near-critical fault nucleate diffusely. Interpret it as unresolved
+#       sub-grid stress heterogeneity + the numerical nucleation seed. It is
+#       kept SMALL (resolved shear change ~ mu*dP) so the INJECTION remains the
+#       dominant physical driver, not the seed.
+#
+#   Net in the patch: CFS -0.77  --(+dP)-->  -0.17  --(+dTau)-->  +0.44 MPa.
+#   The event that follows is NOT bounded by this ~1 MPa perturbation: once it
+#   goes, dynamic + static stress transfer carries it across the network
+#   (the "runaway / triggered" regime of Galis 2017; cf. Pohang 2017). THAT
+#   decoupling of final magnitude from the pressurized volume is the result.
+#
+# -----------------------------------------------------------------------------
+# BOB WILL geometry (fault_inventory.csv)
+#   strike = 101.3 deg, dip = 72.7 deg, depth 1436 - 2178 m
+#   centroid (projected): X=104823.72  Y=357089.68  Z=-1817.43
+#
+# PATCH CENTRE (on the plane, in the basement)
+#   296 m down-dip from the centroid -> depth 2100 m (basement, > 1950 m)
+#   LOCAL mesh frame (used below):  x = 255.19  y = -393.23  z = -2100.00
+#   Local origin (build_mesh over ALL 28 faults): ox=104551.285 oy=357396.610
+#   >>> If you mesh only a SUBSET (build_mesh.py --select ...), the origin
+#       shifts: recompute x_nuc = X_proj - ox_subset, y_nuc = Y_proj - oy_subset
+#       (z unchanged). To move the patch, displace the centroid by
+#       a*strike_vec + b*down_dip_vec (b>0 = deeper) and re-centre.
+#
+# TUNING KNOBS (all in the Lua below):
+#   grad_SH  -> sets background criticality. RAISE toward failure = smaller dP
+#               needed; but keep the most-critical fault (Sherliyn) CFS < 0.
+#   dP       -> realistic overpressure. Defensible band 0.5-2 MPa in basement.
+#   dTau     -> shear seed. Keep <= mu*dP so injection stays dominant.
+#   r_nuc    -> 70 m (140 m disk): deliberately LARGER than the Hannes 20 m so
+#               it is resolved by the default 50 m --lc-fault (>= ~3 elems) AND
+#               exceeds the critical nucleation length. Check both before a run.
+#
+# ALWAYS validate CFS along Bob Will with easi's debug sampler BEFORE running:
+#   CFS < 0 everywhere except inside the patch, where CFS > 0.
+# =============================================================================
+
+!Switch
+
+# -----------------------------------------------------------------------------
+# Friction parameters 
+# -----------------------------------------------------------------------------
+[mu_s, mu_d, d_c, s_xz, s_yz]: !ConstantMap
+  map:
+    mu_s:     0.60        # static friction coefficient
+    mu_d:     0.45        # dynamic friction coefficient
+    d_c:      0.02        # critical slip-weakening distance [m]
+    s_xz:     0.0         # no vertical shear (pure strike-slip first pass)
+    s_yz:     0.0
+
+[cohesion]: !LuaMap
+  returns: [cohesion]
+  function: |
+      function f (x)
+        -- Mt. Simon: cemented sandstone, immature fault segments -> real cohesion
+        -- Basement:  mature gouge-bearing faults -> ~0 (literature convention)
+        -- Interface at 1950 m matches material.yaml.
+        if x["z"] >= -1950.0 then
+          return { cohesion = -0.5e6 }   -- sediment, 1 MPa (NEGATIVE convention)
+        else
+          return { cohesion = -0.1e6 }   -- basement, 0.1 MPa
+        end
+      end
+
+# -----------------------------------------------------------------------------
+# Stress tensor: near-critical effective background
+#                + basement overpressure disk (dP) + small shear seed (dTau)
+# -----------------------------------------------------------------------------
+[s_xx, s_xy, s_yy, s_zz]: !LuaMap
+  returns: [s_xx, s_xy, s_yy, s_zz]
+  function: |
+      function f (x)
+        ----------------------------------------------------------------
+        -- USER-EDITABLE PARAMETERS
+        ----------------------------------------------------------------
+        -- Stress gradients [Pa/m]. grad_SH tuned so Bob Will is NEAR-CRITICAL
+        -- (deepest CFS = -0.80 MPa) while all other faults stay CFS < 0.
+        local grad_Sv = 25.0e3     -- vertical        (25   MPa/km)
+        local grad_SH = 47.7e3     -- max horizontal  (47.7 MPa/km; SHmax/Sv=1.91)
+        local grad_Sh = 22.0e3     -- min horizontal  (22   MPa/km)
+        local grad_Pf =  9.81e3    -- hydrostatic Pf  (9.81 MPa/km)
+        local az_SH   = 70.0       -- SHmax azimuth [deg], clockwise from North
+
+        -- Nucleation patch: a DISK in the Bob Will plane, in the BASEMENT.
+        local x_nuc      =   42.58   -- m  (X = East)   local mesh frame
+        local y_nuc      =  500.82   -- m  (Y = North)
+        local z_nuc      = -1823.19   -- m  (Z = up; depth 2100 m, basement)
+        local strike_deg =  275.5      -- Bob Will
+        local dip_deg    =  64.9
+        local r_nuc      =  70.0      -- in-plane patch radius -> ~140 m disk
+        local n_tol      =  25.0      -- max off-plane distance to count as on-plane
+
+        -- Injection-triggered loading applied INSIDE the disk:
+        local dP         =   4.32e6    -- overpressure [Pa]  (~142 psi, observed scale)
+        local dTau       =   0.0e6    -- shear seed [Pa]    (~0.6 MPa resolved; localizes)
+        -- Coulomb bookkeeping in the patch: mu_s*dP = 0.60 MPa (from dP),
+        -- plus ~0.6 MPa from dTau, lifts CFS from -0.77 to ~+0.44 MPa.
+
+        ----------------------------------------------------------------
+        -- Background effective stress (tension-positive, compression NEG).
+        ----------------------------------------------------------------
+        local th = az_SH * math.pi / 180.0
+        local s2 = math.sin(th)^2
+        local c2 = math.cos(th)^2
+        local sc = math.sin(th) * math.cos(th)
+
+        local z     = x["z"]
+        local depth = -z
+        if depth < 0.0 then depth = 0.0 end
+
+        local Sv = grad_Sv * depth
+        local SH = grad_SH * depth
+        local Sh = grad_Sh * depth
+        local Pf = grad_Pf * depth
+        local Sv_e = Sv - Pf
+        local SH_e = SH - Pf
+        local Sh_e = Sh - Pf
+
+        local sxx = -(SH_e * s2 + Sh_e * c2)
+        local syy = -(SH_e * c2 + Sh_e * s2)
+        local sxy = -(SH_e - Sh_e) * sc
+        local szz = -Sv_e
+
+        ----------------------------------------------------------------
+        -- Disk patch in the fault plane (accounts for strike AND dip).
+        ----------------------------------------------------------------
+        local sr = strike_deg * math.pi / 180.0
+        local dr = dip_deg    * math.pi / 180.0
+        local sS, cS = math.sin(sr), math.cos(sr)
+        local sD, cD = math.sin(dr), math.cos(dr)
+
+        local svx, svy, svz =  sS,      cS,      0.0    -- along-strike
+        local dvx, dvy, dvz =  cS*cD,  -sS*cD,  -sD     -- down-dip
+        local nvx, nvy, nvz = -cS*sD,   sS*sD,  -cD     -- plane normal
+
+        local vx = x["x"] - x_nuc
+        local vy = x["y"] - y_nuc
+        local vz = z      - z_nuc
+
+        local s_par = vx*svx + vy*svy + vz*svz          -- along-strike in-plane
+        local d_par = vx*dvx + vy*dvy + vz*dvz          -- down-dip in-plane
+        local n_off = vx*nvx + vy*nvy + vz*nvz          -- distance off the plane
+
+        if (s_par*s_par + d_par*d_par) <= r_nuc*r_nuc
+           and math.abs(n_off) <= n_tol then
+          -- (a) OVERPRESSURE: dP added isotropic -> reduces effective normal
+          --     stress by dP on the fault (shear unchanged). Compression is
+          --     negative, so +dP makes normal components LESS compressive.
+          sxx = sxx + dP
+          syy = syy + dP
+          szz = szz + dP
+          -- (b) SHEAR SEED: increase shear magnitude (sxy is negative here,
+          --     so subtracting dTau raises |sxy| -> raises resolved shear).
+          sxy = sxy - dTau
+        end
+
+        return { s_xx = sxx, s_xy = sxy, s_yy = syy, s_zz = szz }
+      end
+
+
+# -----------------------------------------------------------------------------
+# Forced rupture time (FL=16): OPTIONAL clean-nucleation backup, DISABLED.
+# -----------------------------------------------------------------------------
+# The stress patch above nucleates spontaneously at t=0. If it stalls (patch
+# below the critical nucleation length, or too marginal), enable a forced seed:
+#   - set r_seed > 0 (e.g. 40 m) and t_rupture to a small time (e.g. 0.1 s),
+#   - set t_0 in parameters.par (e.g. 0.5 s) for the smooth ramp.
+# Tnuc_* (fault-aligned nucleation tractions) kept zero.
+[forced_rupture_time, Tnuc_n, Tnuc_s, Tnuc_d]: !LuaMap
+  returns: [forced_rupture_time, Tnuc_n, Tnuc_s, Tnuc_d]
+  function: |
+      function f (x)
+        local r_seed    = 0.0        -- m  (0 = disabled)
+        local t_rupture = 0.1        -- s
+        local x_nuc     =   255.19
+        local y_nuc     =  -393.23
+        local z_nuc     = -2100.00
+
+        local frt = 1.0e10           -- huge -> effectively plain LSW
+
+        if r_seed > 0.0 then
+          local dx = x["x"] - x_nuc
+          local dy = x["y"] - y_nuc
+          local dz = x["z"] - z_nuc
+          local r  = math.sqrt(dx*dx + dy*dy + dz*dz)
+          if r <= r_seed then
+            frt = t_rupture
+          end
+        end
+
+        return {
+          forced_rupture_time = frt,
+          Tnuc_n              = 0.0,
+          Tnuc_s              = 0.0,
+          Tnuc_d              = 0.0
+        }
+      end

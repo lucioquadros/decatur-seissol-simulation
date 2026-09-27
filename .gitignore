@@ -1,0 +1,37 @@
+# local configuration
+config/paths.yaml
+
+# raw IBDP data
+*.ts
+*.stl
+*.bstl
+
+# meshes and SeisSol outputs
+*.msh
+*.h5
+*.hdf5
+*.xdmf
+!references/*/mesh.puml.hdf5.xdmf
+*.nc
+*.vtk
+*.vtp
+*.vtu
+*.pvtu
+*.mp4
+output/
+work/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+build/
+dist/
+
+# editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

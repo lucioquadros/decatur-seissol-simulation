@@ -1,0 +1,83 @@
+# =============================================================================
+# material.yaml — Decatur CO2 storage site (IBDP)
+#                 Idealized BIMATERIAL (two-layer) elastic model
+# =============================================================================
+#
+# Solver:      SeisSol elastic wave equation -> requires rho, mu, lambda.
+# Mesh frame:  local re-centred coordinates from build_mesh.py
+#              (X = East, Y = North, Z = up; free surface at Z = 0,
+#               z NEGATIVE below the surface).
+#
+# Layering
+# --------
+#   z >= -1950 m   Sedimentary layer : Mt. Simon sandstone
+#   z <  -1950 m   Hard rock (basement): Precambrian rhyolite (fractured)
+#
+# The interface at 1950 m depth lies WITHIN the Hannes fault depth range
+# (1367-2319 m), so a fault that crosses it straddles the material contrast —
+# i.e. this is a genuine bimaterial fault setup (expect rupture asymmetry /
+# possible wrinkle-like pulse behaviour across the interface).
+#
+# Source of properties
+# --------------------
+# material_properties.csv (Bondarenko et al. 2025). The elastic moduli below
+# are the DYNAMIC moduli computed from the measured seismic velocities, because
+# SeisSol solves the wave equation and the moduli must be consistent with the
+# wave speeds:
+#       mu     = rho * Vs^2
+#       lambda = rho * (Vp^2 - 2*Vs^2)
+#
+#   Material                       Vp[m/s]  Vs[m/s]  rho[kg/m3]  mu[GPa]  lambda[GPa]
+#   -----------------------------  -------  -------  ----------  -------  -----------
+#   Mt. Simon sandstone             2870     1720      2400       7.10       5.57
+#   Precambrian rhyolite (fract.)   5330     3160      2730      27.26      23.03
+#
+#   Impedance (rho*Vp): sandstone 6.89e6  vs  rhyolite 1.46e7  (ratio ~2.1)
+#   Vs contrast: 1720 vs 3160 m/s (ratio ~1.8) -> strong bimaterial contrast.
+#
+# NOTE on dynamic vs static moduli. The CSV also lists STATIC lab moduli
+# (G, E, Kd). These differ from the velocity-derived dynamic moduli used here,
+# as expected — the mismatch is large for the FRACTURED rhyolite (static
+# G = 9.4 GPa vs dynamic mu = 27.3 GPa), since fractures soften the static
+# response. For wave propagation / dynamic rupture, the velocity-consistent
+# (dynamic) values above are the correct choice. If you instead want the
+# static stiffness, swap in mu = G and lambda = Kd - (2/3)*G.
+#
+# To change the model:
+#   - move the interface: edit z_boundary below;
+#   - make it homogeneous: return the same triple in both branches (or use a
+#     single !ConstantMap, as in TPV29's tpv29_material.yaml);
+#   - add more layers: add further elseif branches on x["z"].
+# =============================================================================
+
+!LuaMap
+returns: [rho, mu, lambda]
+function: |
+    function f (x)
+      ------------------------------------------------------------------
+      -- Sediment / basement interface (Z up, NEGATIVE below surface)
+      ------------------------------------------------------------------
+      local z_boundary = -1950.0        -- 1950 m depth
+
+      local rho, mu, lambda
+
+      if x["z"] >= z_boundary then
+        ----------------------------------------------------------------
+        -- Sedimentary layer: Mt. Simon sandstone
+        -- Vp = 2870 m/s, Vs = 1720 m/s, rho = 2400 kg/m^3
+        ----------------------------------------------------------------
+        rho    = 2400.0
+        mu     = 7.100e9              -- rho * Vs^2
+        lambda = 5.568e9              -- rho * (Vp^2 - 2 Vs^2)
+      else
+        ----------------------------------------------------------------
+        -- Hard rock (basement): Precambrian rhyolite (fractured)
+        -- Vp = 5330 m/s, Vs = 3160 m/s, rho = 2730 kg/m^3
+        ----------------------------------------------------------------
+        rho    = 2730.0
+        mu     = 2.726e10             -- rho * Vs^2
+        lambda = 2.303e10             -- rho * (Vp^2 - 2 Vs^2)
+      end
+
+      return { rho = rho, mu = mu, lambda = lambda }
+    end
