@@ -1,82 +1,17 @@
-#!/usr/bin/env python3
-"""
-plot_seissol_output.py
-======================
-Post-processing and plotting for SeisSol output CSVs from the Decatur CO2
-storage dynamic-rupture simulation (rupture on the Nick fault, nucleated by
-an injection overpressure perturbation).
+"""Moment rate, energy budget and solver-performance figures from SeisSol CSV output.
 
-Expects the four CSVs SeisSol writes alongside a run, named with a common
-prefix (default "decatur"):
-
-    <prefix>-energy.csv         long format: time, variable, measurement
-    <prefix>-flops.csv          time (wall clock, s), rank_N_accumulated,
-                                rank_N_current  (GFLOP/s)
-    <prefix>-clustering.csv     LTS cluster breakdown per rank
-    <prefix>-threadPinning.csv  one row per rank: hostname, masks, nproc
-
-Only the energy file is mandatory; the others are plotted if present.
-
-Outputs
--------
-  moment_rate.png        standalone dM0/dt figure (the headline plot)
-  source.png             2x3 source-physics panel
-  energy.png             1x3 energy-budget panel
-  performance.png        2x2 solver-performance panel
-  derived_quantities.csv scalar summary of everything computed here
-
-Usage
------
-  python plot_seissol_output.py .
-  python plot_seissol_output.py /path/to/run --prefix decatur --outdir figures
-  python plot_seissol_output.py . --vs 2600 --rho 2500 --smooth 7
-  python plot_seissol_output.py . --show
-
-Dependencies: numpy, pandas, matplotlib.  scipy is OPTIONAL (used only for
-Savitzky-Golay smoothing; the script falls back to no smoothing without it).
-
-
-A NOTE ON CONVENTIONS AND CAVEATS
----------------------------------
-Several derived quantities depend on definitions that are worth verifying
-against the SeisSol energy-output documentation for your version before any
-number here is quoted in a paper:
-
-  * RADIATED ENERGY.  SeisSol's `elastic_energy` and `elastic_kinetic_energy`
-    both start at zero in this run, i.e. they are reported for the PERTURBATION
-    field rather than as absolute energies.  This script therefore uses
-        E_wave(t) = elastic_energy + elastic_kinetic_energy
-    as a PROXY for radiated energy and labels it as such.  It is not
-    corrected for energy that has already left through the absorbing
-    boundaries, so it under-estimates the true radiated energy at late times.
-    Apparent stress derived from it is flagged approximate throughout.
-
-  * BREAKDOWN (FRACTURE) ENERGY.  Taken as
-        E_G(t) = total_frictional_work - static_frictional_work
-    which is the standard decomposition for a linear slip-weakening law, but
-    check the sign convention of `static_frictional_work` in your build --
-    in this dataset it decreases slightly after its peak, which the script
-    reports rather than hides.
-
-  * OUTPUT SAMPLING.  The energy file is sampled at the interval set by
-    `EnergyOutputInterval` in parameters.par.  Differentiating a cumulative
-    quantity is only as good as that sampling: the script prints how many
-    samples fall inside the rupture and warns if the moment-rate pulse is
-    under-resolved.
+Reads <prefix>-energy.csv (required) and the flops, clustering and threadPinning
+CSVs when present. 
+Reference: docs/visualization.md.
 """
 
+import glob
 import os
 import sys
-import glob
-import argparse
-import textwrap
 
 import numpy as np
 import pandas as pd
 import matplotlib
-
-# main() switches to the non-interactive Agg backend unless --show is given,
-# so the script runs unattended on a headless cluster login node.
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
@@ -91,23 +26,11 @@ except ImportError:                                    # pragma: no cover
 # 1.  CONFIGURATION DEFAULTS
 # -----------------------------------------------------------------------------
 
-# Material properties used to convert spectral quantities into source
-# dimensions.  Defaults are mid-range Mt. Simon Sandstone values from the
-# project context document; override on the command line to match the
-# material.yaml actually used for the run.
-DEFAULT_VS   = 2600.0      # S-wave speed [m/s]
-DEFAULT_RHO  = 2500.0      # density [kg/m^3]
-
 # Brune (1970) constant in  r = K_BRUNE * Vs / f_c
 K_BRUNE      = 0.37
 
 # Fraction of the final moment used to define the rupture duration
 DURATION_FRACTIONS = (0.05, 0.90, 0.95)
-
-# Variables that are identically zero in a purely elastic, non-plastic,
-# non-acoustic run; dropped from the budget plots to avoid flat lines.
-ALWAYS_DROP = ("acoustic_energy", "acoustic_kinetic_energy",
-               "gravitational_energy", "plastic_moment")
 
 # Plot styling
 FIGSIZE_SOURCE = (16.0, 9.0)
@@ -150,7 +73,7 @@ def load_energy(path: str) -> pd.DataFrame:
 
       * `plastic_moment` is written twice per timestep in some builds, so a
         naive pivot raises on duplicate entries.  aggfunc='mean' collapses
-        them; for a run with no plasticity both copies are zero anyway.
+        them. For a run with no plasticity both copies are zero anyway.
       * Rows are not guaranteed to be time-sorted, so the index is sorted
         explicitly before any differentiation happens downstream.
     """
@@ -179,7 +102,7 @@ def load_flops(path: str) -> pd.DataFrame | None:
     """
     df = pd.read_csv(path)
     if "time" not in df.columns:
-        print(f"  WARNING: {path} has no 'time' column; skipping.",
+        print(f"  WARNING: {path} has no 'time' column, skipping.",
               file=sys.stderr)
         return None
     return df.sort_values("time").reset_index(drop=True)
@@ -198,14 +121,14 @@ def flops_ranks(df: pd.DataFrame) -> list[int]:
 def load_clustering(path: str) -> pd.DataFrame | None:
     """
     Read the LTS clustering CSV.  Rows are (profilingId, localId, layerType,
-    size, dynamicRuptureSize, rank, localRank); `localId` is the LTS cluster
+    size, dynamicRuptureSize, rank, localRank). `localId` is the LTS cluster
     index and `layerType` distinguishes Interior from Copy (MPI halo) layers.
     """
     df = pd.read_csv(path)
     needed = {"localId", "layerType", "size", "dynamicRuptureSize"}
     missing = needed - set(df.columns)
     if missing:
-        print(f"  WARNING: {path} missing {sorted(missing)}; skipping.",
+        print(f"  WARNING: {path} missing {sorted(missing)}, skipping.",
               file=sys.stderr)
         return None
     return df
@@ -258,7 +181,7 @@ def moment_rate(t: np.ndarray, m0: np.ndarray,
     """
     if smooth_window and smooth_window > 3:
         if not HAVE_SCIPY:
-            print("  WARNING: --smooth requested but scipy is unavailable; "
+            print("  WARNING: --smooth requested but scipy is unavailable, "
                   "differentiating the raw curve instead.", file=sys.stderr)
         else:
             win = int(smooth_window) | 1                # force odd
@@ -304,7 +227,7 @@ def source_spectrum(t: np.ndarray, mdot: np.ndarray,
     Far-field source amplitude spectrum from the moment-rate function.
 
     The Fourier transform of the moment rate is the source spectrum whose
-    zero-frequency asymptote is the total seismic moment; the returned
+    zero-frequency asymptote is the total seismic moment. The returned
     amplitude is scaled by dt so that |Omega(0)| == M0_final (a useful
     self-check printed by the summary).
 
@@ -349,7 +272,7 @@ def corner_frequency(freq: np.ndarray, amp: np.ndarray, m0_final: float,
               plateau pinned to M0, restricted to frequencies where the
               observed amplitude still exceeds hi_amp_frac * Omega_0 (default
               10%, i.e. roughly the corner region rather than the far tail).
-              Reported for comparison; it remains sensitive to that band, and
+              Reported for comparison. It remains sensitive to that band, and
               the summary flags a large discrepancy between the two.
 
     Returns f_c set to f_half -- the estimate the downstream source
@@ -371,7 +294,7 @@ def corner_frequency(freq: np.ndarray, amp: np.ndarray, m0_final: float,
     f_half = np.nan
     if below.size and below[0] > 0:
         i = below[0]
-        # Interpolate log10(f) against log10(amp); amp is decreasing here, so
+        # Interpolate log10(f) against log10(amp). amp is decreasing here, so
         # the arrays are reversed to keep np.interp's ascending-x contract.
         f_half = 10.0 ** np.interp(np.log10(target),
                                    [np.log10(a[i]), np.log10(a[i - 1])],
@@ -419,7 +342,7 @@ def source_dimensions(m0: float, f_c: float, vs: float) -> dict:
             "area": np.pi * r ** 2}
 
 
-def analyse_source(wide: pd.DataFrame, vs: float, rho: float,
+def analyze_source(wide: pd.DataFrame, vs: float, rho: float,
                    smooth_window: int, corner_band: float = 0.1) -> dict:
     """
     Assemble every scalar and series the source figures need, in one place, so
@@ -469,7 +392,7 @@ def analyse_source(wide: pd.DataFrame, vs: float, rho: float,
     return res
 
 
-def analyse_energy(wide: pd.DataFrame, src: dict) -> dict:
+def analyze_energy(wide: pd.DataFrame, src: dict) -> dict:
     """
     Energy-budget derivations.  Every quantity is guarded on the presence of
     its source column so a run configured with fewer outputs still plots.
@@ -677,10 +600,10 @@ def plot_rigidity(ax, src: dict) -> None:
 
 def plot_late_creep(ax, src: dict, eng: dict) -> None:
     """
-    Normalised cumulative moment against normalised frictional work.  During
-    coseismic slip the two track each other; if the moment keeps creeping
+    Normalized cumulative moment against normalized frictional work.  During
+    coseismic slip the two track each other. If the moment keeps creeping
     after the frictional work has plateaued, the tail is either genuine slow
-    slip or a numerical artefact -- either way it deserves to be visible.
+    slip or a numerical artifact -- either way it deserves to be visible.
     """
     t, m0 = src["t"], src["m0"]
     ax.plot(t, m0 / m0[-1], color=C_MOMENT, lw=1.6, label=r"$M_0/M_0^{final}$")
@@ -693,7 +616,7 @@ def plot_late_creep(ax, src: dict, eng: dict) -> None:
         ax.text(src["T90"], 0.05, f"  $T_{{90}}$ = {src['T90']:.2f} s",
                 fontsize=8, color="0.35")
     ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Normalised cumulative value")
+    ax.set_ylabel("Normalized cumulative value")
     ax.set_xlim(t[0], t[-1])
     ax.set_ylim(0, 1.05)
     ax.grid(True, lw=0.3, alpha=0.4)
@@ -710,12 +633,12 @@ def plot_moment_fraction(ax, src: dict) -> None:
     t, m0 = src["t"], src["m0"]
     pos = t > 0
     ax.semilogx(t[pos], 100.0 * m0[pos] / m0[-1], color=C_MOMENT, lw=1.8)
-    for (key, colour), y in zip((("T05", "0.55"), ("T90", C_RATE),
+    for (key, color), y in zip((("T05", "0.55"), ("T90", C_RATE),
                                  ("T95", "0.35")), (6, 34, 62)):
         if key in src:
-            ax.axvline(src[key], color=colour, lw=0.9, ls=":")
+            ax.axvline(src[key], color=color, lw=0.9, ls=":")
             ax.text(src[key], y, f" {key}={src[key]:.3f} s", rotation=90,
-                    fontsize=7.5, color=colour, va="bottom")
+                    fontsize=7.5, color=color, va="bottom")
     ax.set_xlabel("Time (s, log scale)")
     ax.set_ylabel("Moment released (%)")
     ax.set_ylim(0, 105)
@@ -813,7 +736,7 @@ def plot_breakdown_energy(ax, src: dict, eng: dict) -> None:
 def plot_momentum(ax, src: dict, eng: dict) -> None:
     """
     Linear momentum components.  The ratio of the horizontal components
-    reflects the slip direction and radiation pattern; on a strike-slip fault
+    reflects the slip direction and radiation pattern. On a strike-slip fault
     the vertical component should stay comparatively small.
     """
     if "momentum" not in eng:
@@ -827,8 +750,8 @@ def plot_momentum(ax, src: dict, eng: dict) -> None:
               "momentumY": ("#2980b9", "$p_y$ (North)"),
               "momentumZ": ("#27ae60", "$p_z$ (Up)")}
     for key, arr in eng["momentum"].items():
-        colour, label = styles.get(key, ("0.4", key))
-        ax.plot(t, arr, color=colour, lw=1.6, label=label)
+        color, label = styles.get(key, ("0.4", key))
+        ax.plot(t, arr, color=color, lw=1.6, label=label)
     ax.axhline(0, color="0.6", lw=0.7)
     ax.set_xlabel("Time (s)")
     ax.set_ylabel(r"Momentum (kg$\cdot$m/s)")
@@ -1097,8 +1020,8 @@ def print_summary(summary: pd.DataFrame, src: dict, eng: dict) -> None:
         status = "OK" if 0.95 < ratio < 1.05 else "CHECK"
         print(f"  [{status}] spectral DC amplitude / M0 = {ratio:.4f} "
               f"(must be ~1: the zero-frequency")
-        print(f"         asymptote of the moment-rate spectrum is the seismic "
-              f"moment)")
+        print("         asymptote of the moment-rate spectrum is the seismic "
+              "moment)")
 
     f_half, f_fit = src["brune"]["f_half"], src["brune"]["f_fit"]
     if np.isfinite(f_half) and np.isfinite(f_fit):
@@ -1110,8 +1033,8 @@ def print_summary(summary: pd.DataFrame, src: dict, eng: dict) -> None:
             print("         -> the source-time function decays faster than "
                   "omega^-2, so the fitted")
             print("            corner depends on the band. The half-amplitude "
-                  "value is used downstream;")
-            print("            adjust --corner-band to see the sensitivity.")
+                  "value is used downstream.")
+            print("            Adjust --corner-band to see the sensitivity.")
 
     if np.isfinite(src["mu_eff_final"]):
         ratio = src["mu_eff_final"] / src["mu_theory"]
@@ -1145,150 +1068,64 @@ def print_summary(summary: pd.DataFrame, src: dict, eng: dict) -> None:
               f"{f_nyq:.1f} Hz")
 
     if eng.get("w_static_decreases"):
-        print("  [CHECK] static_frictional_work decreases after its peak; "
+        print("  [CHECK] static_frictional_work decreases after its peak, "
               "verify the sign")
         print("          convention before interpreting the breakdown energy.")
     print()
 
 
-# -----------------------------------------------------------------------------
-# 8.  ARGUMENT PARSER
-# -----------------------------------------------------------------------------
-
-def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        description=textwrap.dedent("""\
-            Plot SeisSol energy, flops, clustering and thread-pinning output
-            for the Decatur CO2 dynamic-rupture simulation.
-
-            Produces a standalone moment-rate figure, a six-panel source
-            figure, a three-panel energy figure, a four-panel performance
-            figure, and a CSV of derived scalar quantities.
-        """),
-    )
-    p.add_argument(
-        "directory", nargs="?", default=".", metavar="DIR",
-        help="Directory containing the SeisSol output CSVs (default: .).",
-    )
-    p.add_argument(
-        "--prefix", default="decatur", metavar="NAME",
-        help="Output-file prefix used by the run (default: decatur).",
-    )
-    p.add_argument(
-        "--outdir", default="figures", metavar="DIR",
-        help="Directory for the figures and summary CSV (default: figures).",
-    )
-    p.add_argument(
-        "--vs", type=float, default=DEFAULT_VS, metavar="M/S",
-        help=f"S-wave speed used for source dimensions and rigidity "
-             f"(default: {DEFAULT_VS}). Match material.yaml.",
-    )
-    p.add_argument(
-        "--rho", type=float, default=DEFAULT_RHO, metavar="KG/M3",
-        help=f"Density used for the shear modulus (default: {DEFAULT_RHO}).",
-    )
-    p.add_argument(
-        "--smooth", type=int, default=0, metavar="N",
-        help="Savitzky-Golay window (odd, >3) applied to M0 before "
-             "differentiating. 0 = off (default). Requires scipy.",
-    )
-    p.add_argument(
-        "--corner-band", type=float, default=0.1, metavar="FRAC",
-        help="Upper edge of the omega^-2 fit band, as the fraction of the "
-             "spectral plateau at which to stop (default: 0.1). Lower values "
-             "extend the fit further into the tail.",
-    )
-    p.add_argument(
-        "--title", default=None, metavar="TEXT",
-        help="Figure suptitle (default: derived from the prefix).",
-    )
-    p.add_argument(
-        "--dpi", type=int, default=150, metavar="N",
-        help="Figure resolution (default: 150).",
-    )
-    p.add_argument(
-        "--show", action="store_true",
-        help="Open the figures interactively in addition to saving them.",
-    )
-    return p
 
 
 # -----------------------------------------------------------------------------
-# 9.  MAIN
+# 8.  DRIVER
 # -----------------------------------------------------------------------------
 
-def main() -> None:
-    args = build_parser().parse_args()
-
-    if not args.show:
+def run(directory: str, vs: float, rho: float, prefix: str = "decatur",
+        outdir: str = "figures", smooth: int = 0, corner_band: float = 0.1,
+        title: str | None = None, dpi: int = 150, show: bool = False,
+        figures: bool = True) -> pd.DataFrame:
+    """Analyze one run directory. vs and rho are the rupture-zone material."""
+    if not show:
         matplotlib.use("Agg")
+    title = title or f"Decatur dynamic rupture ({prefix})"
 
-    os.makedirs(args.outdir, exist_ok=True)
-    title = args.title or (f"Decatur CO2 storage - dynamic rupture on the "
-                           f"Nick fault ({args.prefix})")
-
-    # -- locate inputs --------------------------------------------------------
-    print(f"\nLooking for '{args.prefix}-*.csv' in {os.path.abspath(args.directory)}")
-    paths = {kind: find_input(args.directory, args.prefix, kind)
+    print(f"\nLooking for '{prefix}-*.csv' in {os.path.abspath(directory)}")
+    paths = {kind: find_input(directory, prefix, kind)
              for kind in ("energy", "flops", "clustering", "threadPinning")}
     for kind, path in paths.items():
-        state = os.path.basename(path) if path else "not found"
-        print(f"  {kind:<14s} : {state}")
-
+        print(f"  {kind:<14s} : {os.path.basename(path) if path else 'not found'}")
     if paths["energy"] is None:
-        print("\nERROR: no energy CSV found; nothing to plot.", file=sys.stderr)
-        sys.exit(1)
+        raise FileNotFoundError(f"no energy CSV in {directory}")
 
-    # -- load -----------------------------------------------------------------
     wide = load_energy(paths["energy"])
-    dropped = [c for c in wide.columns
-               if c in ALWAYS_DROP or np.allclose(wide[c].to_numpy(), 0.0)]
-    if dropped:
-        print(f"\n  Note: {len(dropped)} all-zero variable(s) excluded from "
-              f"the budget plots: {', '.join(sorted(dropped))}")
-
     flops = load_flops(paths["flops"]) if paths["flops"] else None
     clus = load_clustering(paths["clustering"]) if paths["clustering"] else None
     pinning = (load_thread_pinning(paths["threadPinning"])
                if paths["threadPinning"] else None)
     caption = describe_pinning(pinning)
-
     print(f"\n  Energy series : {len(wide)} samples, "
           f"t = {wide.index[0]:.3f} to {wide.index[-1]:.3f} s")
     print(f"  Hardware      : {caption}")
 
-    # -- derive ---------------------------------------------------------------
-    src = analyse_source(wide, args.vs, args.rho, args.smooth,
-                         args.corner_band)
-    eng = analyse_energy(wide, src)
+    src = analyze_source(wide, vs, rho, smooth, corner_band)
+    eng = analyze_energy(wide, src)
+    summary = build_summary(src, eng, clus, flops, vs, rho)
+    print_summary(summary, src, eng)
+    if not figures:
+        return summary
 
-    # -- plot -----------------------------------------------------------------
-    print("\nGenerating figures...")
-    written = [figure_moment_rate(src, args.outdir, args.dpi, title),
-               figure_source(src, eng, args.outdir, args.dpi, title),
-               figure_energy(src, eng, args.outdir, args.dpi, title)]
-    perf = figure_performance(src, clus, flops, caption, args.outdir,
-                              args.dpi, title)
+    os.makedirs(outdir, exist_ok=True)
+    written = [figure_moment_rate(src, outdir, dpi, title),
+               figure_source(src, eng, outdir, dpi, title),
+               figure_energy(src, eng, outdir, dpi, title)]
+    perf = figure_performance(src, clus, flops, caption, outdir, dpi, title)
     if perf:
         written.append(perf)
-
-    # -- summary --------------------------------------------------------------
-    summary = build_summary(src, eng, clus, flops, args.vs, args.rho)
-    summary_path = os.path.join(args.outdir, "derived_quantities.csv")
+    summary_path = os.path.join(outdir, "derived_quantities.csv")
     summary.to_csv(summary_path, index=False)
     written.append(summary_path)
-
-    print_summary(summary, src, eng)
-
     for path in written:
         print(f"  Saved: {path}")
-
-    if args.show:
+    if show:
         plt.show()
-
-    print("\nDone.")
-
-
-if __name__ == "__main__":
-    main()
+    return summary

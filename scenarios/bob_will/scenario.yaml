@@ -1,0 +1,58 @@
+# Bob Will overpressure scenario. SI units (m, s, Pa, Pa/m), angles in degrees.
+name: bob_will
+
+# faults meshed, also sets the local origin (null = all faults in the inventory)
+faults: null
+
+mesh:
+  lc_fault: 30.0
+  lc_domain: 500.0
+  dist_min: 200.0
+  dist_max: 3000.0
+  buffer: 5000.0
+  depth_buffer: 5000.0
+  # ball radius = patch.radius + margin (margin defaults to 20 m)
+  nucleation_ball: {margin: 20.0, thickness: 500.0, lc: 10.0}
+
+friction:
+  mu_s: 0.60
+  mu_d: 0.45
+  d_c: 0.02
+  cohesion: {z_switch: -1950.0, above: -0.5e6, below: -0.1e6}
+
+stress:
+  sv: 25.0e3
+  shmax: 47.7e3
+  shmin: 22.0e3
+  pf: 9.81e3
+  shmax_azimuth: 70.0
+
+# disk centered on the fault's PCA plane: centroid + offsets (dip_offset > 0 is deeper)
+patch:
+  fault: Bob Will
+  strike_offset: 0.0
+  dip_offset: 296.0
+  radius: 70.0
+  normal_tol: 1.0
+  dp: 2.0e6
+  dtau: 0.0
+
+# friction forced to mu_d within radius of the patch center (0 = off), from time over t_0
+forced_rupture: {radius: 0.0, time: 0.1, t_0: 0.5}
+
+run:
+  end_time: 2.0
+  cfl: 0.5
+  lts: 2
+
+outputs:
+  fault_interval: 0.05
+  fault_mask: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+  fault_refinement: 1
+  energy_interval: 0.01
+  wavefield: 0
+  wavefield_mask: [0, 0, 0, 0, 0, 0, 1, 1, 1]
+  surface: 0
+  surface_interval: 0.5
+  surface_refinement: 1
+  receivers: 0

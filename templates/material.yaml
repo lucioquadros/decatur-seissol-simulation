@@ -1,0 +1,13 @@
+# Two-layer elastic material.
+# Mt. Simon over fractured Precambrian rhyolite (Bondarenko 2025, dynamic moduli):
+#   mu = rho Vs^2, lambda = rho (Vp^2 - 2 Vs^2)
+!LuaMap
+returns: [rho, mu, lambda]
+function: |
+    function f (x)
+      if x["z"] >= -1950.0 then
+        return { rho = 2400.0, mu = 7.100e9, lambda = 5.568e9 }   -- Vp 2870, Vs 1720
+      else
+        return { rho = 2730.0, mu = 2.726e10, lambda = 2.303e10 } -- Vp 5330, Vs 3160
+      end
+    end
