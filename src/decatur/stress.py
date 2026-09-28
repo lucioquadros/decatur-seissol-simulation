@@ -52,17 +52,6 @@ class Patch:
         return ((v @ s) ** 2 + (v @ d) ** 2 <= self.radius ** 2) & (np.abs(v @ n) <= self.normal_tol)
 
 
-@dataclass(frozen=True)
-class StepCohesion:
-    """Cohesion (SeisSol sign, <= 0) switching value at elevation z_switch."""
-    z_switch: float
-    above: float
-    below: float
-
-    def __call__(self, z) -> np.ndarray:
-        return np.where(np.asarray(z) >= self.z_switch, self.above, self.below)
-
-
 def stress_tensor(points, gradients: StressGradients, patch: Patch | None = None) -> np.ndarray:
     """Effective stress at points (N, 3), with the patch perturbation if given."""
     points = np.atleast_2d(points)

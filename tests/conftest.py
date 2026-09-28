@@ -32,10 +32,23 @@ def load_easi(text: str) -> dict:
     return yaml.load(text, Loader=EasiLoader)
 
 
+def find_tagged(node, tag: str) -> list[dict]:
+    """Values of every component with this tag, at any depth."""
+    found = []
+    if isinstance(node, dict):
+        if node.get("tag") == tag:
+            found.append(node["value"])
+        for v in node.values():
+            found += find_tagged(v, tag)
+    elif isinstance(node, list):
+        for v in node:
+            found += find_tagged(v, tag)
+    return found
+
+
 def lua_functions(text: str) -> dict:
-    """Output names -> Lua source of each !LuaMap in an easi !Switch file."""
-    return {key: comp["value"]["function"] for key, comp in load_easi(text)["value"].items()
-            if comp["tag"] == "LuaMap"}
+    """Returned names (tuple) -> Lua source of each !LuaMap in an easi file."""
+    return {tuple(m["returns"]): m["function"] for m in find_tagged(load_easi(text), "LuaMap")}
 
 
 @pytest.fixture
@@ -44,11 +57,11 @@ def lua():
     runtime = lupa.LuaRuntime()
     compiled = {}
 
-    def call(source: str, x: float, y: float, z: float) -> dict:
+    def call(source: str, *xyz: float, **inputs: float) -> dict:
         if source not in compiled:
             compiled[source] = runtime.execute(source + "\nreturn f")
         f = compiled[source]
-        out = f(runtime.table_from({"x": x, "y": y, "z": z}))
+        out = f(runtime.table_from(dict(zip("xyz", xyz)) | inputs))
         return {k: out[k] for k in out.keys()}
 
     return call

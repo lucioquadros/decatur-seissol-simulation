@@ -39,10 +39,16 @@ def fault_corners(center, strike_deg, dip_deg, extent_strike, extent_dip) -> np.
     return np.array([c + hs - hd, c - hs - hd, c - hs + hd, c + hs + hd])
 
 
-def local_origin(inventory: pd.DataFrame) -> tuple[float, float]:
-    """Mid-point of the horizontal bounding box of the faults."""
+def local_origin(inventory: pd.DataFrame, ground_elevation: float = 0.0):
+    """(x, y, z) local/reference frame: mid-point of the faults' horizontal
+    bounding box (x,y) and the ground elevation so that z = 0 is the free surface."""
     return ((inventory.x_min.min() + inventory.x_max.max()) / 2.0,
-            (inventory.y_min.min() + inventory.y_max.max()) / 2.0)
+            (inventory.y_min.min() + inventory.y_max.max()) / 2.0, float(ground_elevation))
+
+
+def local_centroid(row: pd.Series, origin) -> np.ndarray:
+    """Centroid of a fault in the local frame."""
+    return np.array([row.centroid_x, row.centroid_y, row.centroid_z]) - np.asarray(origin)
 
 
 def fault_row(inventory: pd.DataFrame, name: str) -> pd.Series:

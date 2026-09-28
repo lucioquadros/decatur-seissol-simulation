@@ -2,8 +2,7 @@ import numpy as np
 import pytest
 
 from decatur.geometry import strike_dip_vectors
-from decatur.stress import (Patch, StepCohesion, StressGradients, cfs, points_in_patch, resolve,
-                            stress_tensor)
+from decatur.stress import Patch, StressGradients, cfs, points_in_patch, resolve, stress_tensor
 
 GRAD = StressGradients(sv=25e3, shmax=47.7e3, shmin=22e3, pf=9.81e3, shmax_azimuth=90.0)
 
@@ -47,11 +46,6 @@ def test_patch_disk_shape():
     pts = np.array([[0, 69, -1000], [0, 71, -1000], [0, 0, -1069], [24, 0, -1000],
                     [26, 0, -1000], [0, 40, -1040]], dtype=float)
     np.testing.assert_array_equal(patch.contains(pts), [True, False, True, True, False, True])
-
-
-def test_step_cohesion():
-    c = StepCohesion(-1950.0, -0.5e6, -0.1e6)
-    np.testing.assert_array_equal(c([-1949.0, -1950.0, -1951.0]), [-0.5e6, -0.5e6, -0.1e6])
 
 
 def test_points_in_patch_areas():

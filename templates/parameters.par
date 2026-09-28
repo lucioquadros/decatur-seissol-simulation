@@ -2,6 +2,7 @@
 
 &equations
 MaterialFileName = 'material.yaml'
+UseCellHomogenizedMaterial = 1  ! average rho, mu, lambda over each cell (default)
 Plasticity = 0
 numflux = 'godunov'
 numfluxnearfault = 'godunov'

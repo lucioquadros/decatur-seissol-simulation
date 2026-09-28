@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import yaml
 
-from decatur.geometry import strike_dip_vectors
+from decatur.geometry import fault_row, point_on_fault, strike_dip_vectors
 from decatur.scenario import BALL_MARGIN, load_scenario, render, scenario_path, write
 from decatur.stress import stress_tensor
 from conftest import SCENARIOS, load_easi, lua_functions
@@ -65,13 +65,47 @@ def test_generated_lua_matches_stress_model(case, lua):
     pts = sample_points(sc)
     assert sc.patch.contains(pts).sum() >= 400
     sig = stress_tensor(pts, sc.gradients, sc.patch)
-    coh = sc.cohesion(pts[:, 2])
-    for (x, y, z), s, c in zip(pts, sig, coh):
+    for (x, y, z), s in zip(pts, sig):
         out = lua(src[STRESS], x, y, z)
         want = {"s_xx": s[0, 0], "s_xy": s[0, 1], "s_yy": s[1, 1], "s_zz": s[2, 2]}
         for k in STRESS:
             assert out[k] == pytest.approx(want[k], rel=1e-12, abs=1e-3), (k, x, y, z)
-        assert lua(src[("cohesion",)], x, y, z)["cohesion"] == c
+
+
+def unit_filters(easi_any: dict, sc) -> list:
+    """The three filter components (grid, above, below), checked against the grid axes."""
+    x, y, z = sc.material_domain()
+    grid, above, below = easi_any["value"]["components"]
+    boxes = [c["value"]["limits"] for c in (grid, above, below)]
+    for box in boxes:
+        assert (box["x"], box["y"]) == ([x[0], x[-1]], [y[0], y[-1]])
+    assert [b["z"] for b in boxes] == [[z[0], z[-1]], [z[-1], np.inf], [-np.inf, z[0]]]
+    asagi = grid["value"]["components"]
+    assert asagi["tag"] == "ASAGI"
+    assert asagi["value"] | {"components": None} == {
+        "file": "material.nc", "parameters": ["unit_id"], "var": "unit_id",
+        "interpolation": "nearest", "components": None}
+    return [grid, above, below]
+
+
+def test_cohesion_by_unit(case, lua):
+    _, sc, files = case
+    src = lua_functions(files["fault.yaml"])[("cohesion",)]
+    want = {u.id: float(sc.raw["friction"]["cohesion"][u.name]) for u in sc.units}
+    for uid, c in want.items():
+        assert lua(src, unit_id=uid + 1e-4)["cohesion"] == c
+    _, above, below = unit_filters(load_easi(files["fault.yaml"])["value"][("cohesion",)], sc)
+    assert above["value"]["components"]["value"]["map"] == {"cohesion": want[1]}
+    assert below["value"]["components"]["value"]["map"] == {"cohesion": want[len(sc.units)]}
+
+
+def test_unknown_cohesion_unit_is_rejected(tmp_path):
+    raw = yaml.safe_load(scenario_path("bob_will").read_text())
+    raw["friction"]["cohesion"]["Basement"] = raw["friction"]["cohesion"].pop("Precambrian")
+    path = tmp_path / "scenario.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError, match="Precambrian"):
+        load_scenario(path)
 
 
 def test_forced_rupture_is_off(case, lua):
@@ -110,14 +144,19 @@ def test_forced_rupture_needs_t0(tmp_path):
         render(scenario_with(tmp_path, radius=40.0, time=0.1))
 
 
-def test_material_is_elastic_and_layered(case, lua):
-    _, _, files = case
-    src = load_easi(files["material.yaml"])["value"]["function"]
-    above, below = lua(src, 0.0, 0.0, -1900.0), lua(src, 0.0, 0.0, -2000.0)
-    for m in (above, below):
-        vs2, vp2 = m["mu"] / m["rho"], (m["lambda"] + 2 * m["mu"]) / m["rho"]
-        assert m["mu"] > 0 and m["lambda"] > 0 and vp2 > 2 * vs2
-    assert below["mu"] > above["mu"]
+def test_material_matches_units(case, lua):
+    _, sc, files = case
+    src = lua_functions(files["material.yaml"])[("rho", "mu", "lambda")]
+    for u in sc.units:
+        m = lua(src, unit_id=float(u.id))
+        assert m == pytest.approx({"rho": u.rho, "mu": u.mu, "lambda": u.lam}, rel=1e-6)
+        assert (m["lambda"] + 2 * m["mu"]) / m["rho"] == pytest.approx(u.vp ** 2, rel=1e-6)
+    _, above, below = unit_filters(load_easi(files["material.yaml"]), sc)
+    top, bottom = sc.units[0], sc.units[-1]
+    assert above["value"]["components"]["value"]["map"] == pytest.approx(
+        {"rho": top.rho, "mu": top.mu, "lambda": top.lam}, rel=1e-6)
+    assert below["value"]["components"]["value"]["map"] == pytest.approx(
+        {"rho": bottom.rho, "mu": bottom.mu, "lambda": bottom.lam}, rel=1e-6)
 
 
 def parse_par(text: str) -> dict:
@@ -143,6 +182,7 @@ def test_parameters_match_scenario(case):
     run, out = sc.raw["run"], sc.raw["outputs"]
     expected = {
         ("equations", "materialfilename"): ["material.yaml"],
+        ("equations", "usecellhomogenizedmaterial"): [1],
         ("dynamicrupture", "modelfilename"): ["fault.yaml"],
         ("dynamicrupture", "fl"): [16],
         ("meshnml", "meshfile"): ["mesh.puml.hdf5"],
@@ -165,9 +205,17 @@ def test_parameters_match_scenario(case):
 
 
 def test_origin_is_the_all_faults_frame(case):
-    _, _, files = case
+    _, sc, files = case
     origin = yaml.safe_load(files["origin.json"])
     assert (origin["origin_x"], origin["origin_y"]) == pytest.approx((104551.285, 357396.610))
+    assert origin["origin_z"] == sc.raw["ground_elevation"] == 206.0
+
+
+def test_patch_is_in_the_ground_frame(case):
+    _, sc, _ = case
+    p = sc.raw["patch"]
+    raw = point_on_fault(fault_row(sc.inventory, p["fault"]), p["strike_offset"], p["dip_offset"])
+    np.testing.assert_allclose(sc.patch.center, raw - np.array(sc.origin), atol=0.005)
 
 
 def test_make_scenario_is_idempotent(case, tmp_path):

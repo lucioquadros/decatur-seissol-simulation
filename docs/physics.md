@@ -6,9 +6,11 @@ Physics behind the generated `fault.yaml`. The numbers live in
 
 ## Conventions
 
-- Frame: x East, y North, z up, free surface at z = 0. x and y are relative to
-  the local origin in `origin.json` (mid-point of the bounding box of the meshed
-  faults, which for all 28 faults is 104551.285, 357396.610).
+- Frame: x East, y North, z up, free surface at z = 0 = the ground. x and y are
+  relative to the mid-point of the bounding box of the meshed faults (for all 28
+  faults 104551.285, 357396.610), z to `ground_elevation` (206 m above sea level,
+  see `docs/materials.md`). All three are in `origin.json`. Depth = -z is the
+  depth below ground.
 - Stress is tension-positive: compression and cohesion are negative (SeisSol).
 - Stresses are effective: hydrostatic pore pressure is removed from the normal
   components.
@@ -34,10 +36,11 @@ with `scripts/check_cfs.py` whenever the stress or friction changes.
 
 Linear slip-weakening (FL = 16): mu_s 0.60, mu_d 0.45, d_c 0.02 m.
 
-Cohesion switches at z = -1950 m (the 2-layer material interface): -0.5 MPa in
-the sediments (cemented Mt. Simon, immature fault segments) and -0.1 MPa in the
-basement (mature, gouge-bearing faults). Both reference runs used this model.
-M2 replaces the fixed depth with the top of the Precambrian.
+Cohesion is set per material unit (`friction.cohesion`): -0.5 MPa in the
+sediments (cemented Mt. Simon, immature fault segments) and -0.1 MPa in the
+Precambrian basement (mature, gouge-bearing faults). `fault.yaml` reads the unit
+from `material.nc`, so the switch follows the top of the Precambrian. The
+reference runs switched at a fixed elevation of -1950 m (`docs/materials.md`).
 
 ## Nucleation patch
 
@@ -68,10 +71,11 @@ and dip, so its faces sit within 1 cm of the patch plane. SeisSol reads
 but it does load any other fault passing through it. The reference runs used
 25 m, which in the Nick run also put dP on about 13,000 m² of Si-Yong, Steve
 and Dameon (none of them failed). With 1 m only a 414 m² strip of Si-Yong,
-where it crosses Nick's plane, remains. `check_cfs.py` lists every fault inside
-the slab, with its area and CFS, and fails if a fault other than the target
-reaches failure there. Whether dP should load only the target fault or a
-pressurized volume is an open question for M2.
+where it crosses Nick's plane, remains (max CFS -1.45 MPa with dP). `check_cfs.py`
+lists every fault inside the slab, with its area and CFS, and fails if a fault
+other than the target reaches failure there. The slab is kept for now. Loading
+only the target fault (its own fault tag) or a pressurized volume is an optional
+later change (PLAN.md, M8).
 
 A radius of 70 m (a 140 m disk) is resolved by 30 m fault elements, and it
 must also exceed the critical nucleation length. Check both before a
@@ -81,10 +85,13 @@ Once the patch fails, the final magnitude is not bounded by the pressurized
 volume: dynamic and static stress transfer can carry the rupture across the
 network ("runaway" regime, Galis et al. 2017).
 
-| Scenario | Fault | Offset down-dip | Patch (local, m) | dP |
-|---|---|---|---|---|
-| bob_will | Bob Will (101.3/72.7) | 296 m | (255.19, -393.25, -2100.04) | 2 MPa |
-| nick | Nick (275.5/64.9) | 87 m | (42.58, 500.82, -1823.19) | 4.32 MPa |
+| Scenario | Fault | Offset down-dip | Patch (local, m) | Unit | dP |
+|---|---|---|---|---|---|
+| bob_will | Bob Will (101.3/72.7) | 296 m | (255.19, -393.25, -2306.04) | Precambrian | 2 MPa |
+| nick | Nick (275.5/64.9) | 87 m | (42.58, 500.82, -2029.19) | Mt. Simon | 4.32 MPa |
+
+With the ground datum the patch CFS is +0.37 MPa (Bob Will) and +0.24 MPa (Nick),
+background -0.83 and -2.35 MPa (`docs/materials.md`).
 
 ## Forced rupture
 

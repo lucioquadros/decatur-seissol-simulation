@@ -1,0 +1,5 @@
+unit_id,unit,top,vp,vs,rho,source
+1,Eau Claire,surface,4760,2800,2440,"SLB (VW2) report Table 9: 3 Eau Claire Shale samples 5398-5417 ft, Vs mean of V and H, Vp/Vs = 1.7. Extended to the free surface"
+2,Mt. Simon,Mt_Simon,4320,2540,2220,"SLB (VW2) report Table 9: 7 Mt. Simon samples 6375-7003 ft, Vs mean of V and H, Vp/Vs = 1.7"
+3,Argenta,Argenta,5220,3070,2450,"SLB (VW2) report Table 9: 5 Pre-Mt Simon samples 7041-7089 ft, Vs mean of V and H, Vp/Vs = 1.7"
+4,Precambrian,PreCambrian,5330,3160,2730,"Bondarenko et al. (2025) table (fractured rhyolite)"

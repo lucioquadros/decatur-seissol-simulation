@@ -5,12 +5,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from string import Template
 
+import numpy as np
 import pandas as pd
 import yaml
 
-from .config import INVENTORY_CSV, SCENARIOS_DIR, TEMPLATES_DIR
+from .config import INVENTORY_CSV, MATERIAL_CSV, SCENARIOS_DIR, TEMPLATES_DIR
 from .geometry import fault_row, local_origin, point_on_fault, select_faults
-from .stress import Patch, StepCohesion, StressGradients
+from .material import LayeredModel, Unit, axis, build_model, read_units
+from .mesh import domain_bounds
+from .stress import Patch, StressGradients
 
 # keeps the patch edge, where rupture starts, inside the fully refined ball
 BALL_MARGIN = 20.0
@@ -26,11 +29,12 @@ def _leaves(*names):
 SCHEMA = {
     "name": None,
     "faults": None,
+    "ground_elevation": None,
     "mesh": {**_leaves("lc_fault", "lc_domain", "dist_min", "dist_max", "buffer",
                        "depth_buffer"),
              "nucleation_ball": _leaves("margin", "thickness", "lc")},
-    "friction": {**_leaves("mu_s", "mu_d", "d_c"),
-                 "cohesion": _leaves("z_switch", "above", "below")},
+    "material": _leaves("dx", "dz", "z_min", "z_max", "taper"),
+    "friction": {**_leaves("mu_s", "mu_d", "d_c"), "cohesion": None},
     "stress": _leaves("sv", "shmax", "shmin", "pf", "shmax_azimuth"),
     "patch": _leaves("fault", "strike_offset", "dip_offset", "radius", "normal_tol", "dp",
                      "dtau"),
@@ -59,9 +63,10 @@ class Scenario:
     name: str
     raw: dict
     inventory: pd.DataFrame
-    origin: tuple[float, float]
+    origin: tuple[float, float, float]
     gradients: StressGradients
-    cohesion: StepCohesion
+    units: list[Unit]
+    cohesion_by_unit: dict[int, float]
     patch: Patch
 
     @property
@@ -71,6 +76,23 @@ class Scenario:
     @property
     def faults(self) -> pd.DataFrame:
         return select_faults(self.inventory, self.raw.get("faults"))
+
+    def cohesion(self, unit_ids) -> np.ndarray:
+        return np.vectorize(self.cohesion_by_unit.__getitem__, otypes=[float])(unit_ids)
+
+    def material_domain(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Material domain plus one cell (z_min..z_max)."""
+        m, g = self.raw["mesh"], self.raw["material"]
+        dx, dz = float(g["dx"]), float(g["dz"])
+        x0, y0, _, x1, y1, _ = domain_bounds(self.faults, self.origin, float(m["buffer"]),
+                                             float(m["depth_buffer"]))
+        return (axis(x0 - dx, x1 + dx, dx), axis(y0 - dx, y1 + dx, dx),
+                axis(float(g["z_min"]), float(g["z_max"]), dz))
+
+    def layered_model(self, data_dir) -> LayeredModel:
+        x, y, _ = self.material_domain()
+        return build_model(self.units, x, y, self.origin, float(self.raw["material"]["taper"]),
+                           data_dir)
 
     def mesh_options(self) -> MeshSettings:
         m = self.raw["mesh"]
@@ -89,26 +111,37 @@ def scenario_path(name_or_path) -> Path:
     return p if p.suffix in (".yaml", ".yml") else SCENARIOS_DIR / str(name_or_path) / "scenario.yaml"
 
 
-def load_scenario(name_or_path, inventory_csv=INVENTORY_CSV) -> Scenario:
+def _cohesion_by_unit(values: dict, units: list[Unit]) -> dict[int, float]:
+    names = {u.name for u in units}
+    if set(values) != names:
+        raise ValueError(f"friction.cohesion must give every unit {sorted(names)}, "
+                         f"got {sorted(values)}")
+    return {u.id: float(values[u.name]) for u in units}
+
+
+def load_scenario(name_or_path, inventory_csv=INVENTORY_CSV,
+                  material_csv=MATERIAL_CSV) -> Scenario:
     path = scenario_path(name_or_path)
     raw = yaml.safe_load(path.read_text())
     unknown = unknown_keys(raw)
     if unknown:
         raise ValueError(f"{path}: unknown key(s) {', '.join(unknown)}")
     inventory = pd.read_csv(inventory_csv)
-    origin = local_origin(select_faults(inventory, raw.get("faults")))
+    origin = local_origin(select_faults(inventory, raw.get("faults")),
+                          float(raw["ground_elevation"]))
+    units = read_units(material_csv)
 
-    s, c, p = raw["stress"], raw["friction"]["cohesion"], raw["patch"]
+    s, p = raw["stress"], raw["patch"]
     gradients = StressGradients(float(s["sv"]), float(s["shmax"]), float(s["shmin"]),
                                 float(s["pf"]), float(s["shmax_azimuth"]))
-    cohesion = StepCohesion(float(c["z_switch"]), float(c["above"]), float(c["below"]))
+    cohesion = _cohesion_by_unit(raw["friction"]["cohesion"], units)
 
     row = fault_row(inventory, p["fault"])
-    xyz = point_on_fault(row, float(p["strike_offset"]), float(p["dip_offset"]))
-    center = (round(xyz[0] - origin[0], 2), round(xyz[1] - origin[1], 2), round(xyz[2], 2))
+    xyz = point_on_fault(row, float(p["strike_offset"]), float(p["dip_offset"])) - origin
+    center = tuple(round(float(v), 2) for v in xyz)
     patch = Patch(center, float(row.strike_deg), float(row.dip_deg), float(p["radius"]),
                   float(p["normal_tol"]), float(p["dp"]), float(p["dtau"]))
-    return Scenario(raw["name"], raw, inventory, origin, gradients, cohesion, patch)
+    return Scenario(raw["name"], raw, inventory, origin, gradients, units, cohesion, patch)
 
 
 def _num(v) -> str:
@@ -125,14 +158,42 @@ def _forced_rupture_t0(fr: dict) -> str:
     return f"t_0 = {t0!r}".ljust(32) + "! forced-rupture weakening time, s\n"
 
 
+def _unit_cases(units: list[Unit], returns, indent: int) -> str:
+    """Lua lines returning each unit's values for its rounded unit_id."""
+    pad = " " * indent
+    lines = []
+    for u in units:
+        values = ", ".join(f"{k} = {v:.6e}" for k, v in returns(u).items())
+        lines.append(f"{pad}if u == {u.id} then return {{ {values} }} end   -- {u.name}")
+    return "\n".join(lines)
+
+
+def _material_values(u: Unit) -> dict[str, float]:
+    return {"rho": u.rho, "mu": u.mu, "lambda": u.lam}
+
+
+def _flow_map(values: dict[str, float]) -> str:
+    return "{" + ", ".join(f"{k}: {v:.6e}" for k, v in values.items()) + "}"
+
+
 def _values(sc: Scenario) -> dict[str, str]:
     r, g, p = sc.raw, sc.gradients, sc.patch
     fr, run, out = r["friction"], r["run"], r["outputs"]
+    x, y, z = sc.material_domain()
+    top, bottom = sc.units[0], sc.units[-1]
     return {
         "name": sc.name,
+        "x0": _num(x[0]), "x1": _num(x[-1]), "y0": _num(y[0]), "y1": _num(y[-1]),
+        "z0": _num(z[0]), "z1": _num(z[-1]),
+        "top_unit": top.name, "bottom_unit": bottom.name,
+        "material_cases": _unit_cases(sc.units, _material_values, 16),
+        "material_top": _flow_map(_material_values(top)),
+        "material_bottom": _flow_map(_material_values(bottom)),
+        "cohesion_cases": _unit_cases(sc.units,
+                                      lambda u: {"cohesion": sc.cohesion_by_unit[u.id]}, 18),
+        "cohesion_top": _flow_map({"cohesion": sc.cohesion_by_unit[top.id]}),
+        "cohesion_bottom": _flow_map({"cohesion": sc.cohesion_by_unit[bottom.id]}),
         "mu_s": _num(fr["mu_s"]), "mu_d": _num(fr["mu_d"]), "d_c": _num(fr["d_c"]),
-        "z_switch": _num(sc.cohesion.z_switch),
-        "cohesion_above": _num(sc.cohesion.above), "cohesion_below": _num(sc.cohesion.below),
         "grad_Sv": _num(g.sv), "grad_SH": _num(g.shmax), "grad_Sh": _num(g.shmin),
         "grad_Pf": _num(g.pf), "az_SH": _num(g.shmax_azimuth),
         "patch_fault": r["patch"]["fault"],
@@ -161,16 +222,15 @@ def render(sc: Scenario, templates_dir=TEMPLATES_DIR) -> dict[str, str]:
     """Build content of every SeisSol input file."""
     values = _values(sc)
     files = {name: Template((Path(templates_dir) / name).read_text()).substitute(values)
-             for name in ("fault.yaml", "parameters.par")}
-    files["material.yaml"] = (Path(templates_dir) / "material.yaml").read_text()
+             for name in ("fault.yaml", "parameters.par", "material.yaml")}
     files["origin.json"] = origin_json(sc.origin, sc.raw.get("faults"))
     return files
 
 
 def origin_json(origin, faults=None) -> str:
-    return json.dumps({"origin_x": origin[0], "origin_y": origin[1],
+    return json.dumps({"origin_x": origin[0], "origin_y": origin[1], "origin_z": origin[2],
                        "faults": faults or "all",
-                       "note": "x_local = x - origin_x, y_local = y - origin_y, z unchanged"},
+                       "note": "local = raw - origin, origin_z is the ground elevation"},
                       indent=2) + "\n"
 
 

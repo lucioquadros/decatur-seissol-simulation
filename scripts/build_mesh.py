@@ -70,7 +70,8 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     faults = sc.faults
     (out / "origin.json").write_text(origin_json(sc.origin, sc.raw.get("faults")))
-    print(f"{sc.name}: {len(faults)} faults, origin ({sc.origin[0]:.3f}, {sc.origin[1]:.3f}), "
+    o = sc.origin
+    print(f"{sc.name}: {len(faults)} faults, origin ({o[0]:.3f}, {o[1]:.3f}, {o[2]:g}), "
           f"sizes {opts.lc_fault:g} m on faults -> {opts.lc_domain:g} m "
           f"over {opts.dist_min:g}-{opts.dist_max:g} m")
     if opts.nuc_center is not None:

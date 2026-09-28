@@ -12,7 +12,7 @@ def main():
     p.add_argument("inputs", nargs="+", metavar="FILE.ts")
     p.add_argument("-o", "--output", required=True, metavar="FILE.stl")
     g = p.add_mutually_exclusive_group()
-    g.add_argument("--origin", metavar="origin.json", help="shift x, y into this local frame")
+    g.add_argument("--origin", metavar="origin.json", help="shift into local frame")
     g.add_argument("--translate", nargs=2, type=float, metavar=("X0", "Y0"),
                    help="subtract (X0, Y0) from every vertex")
     args = p.parse_args()
@@ -21,7 +21,7 @@ def main():
     if args.origin:
         with open(args.origin) as fh:
             o = json.load(fh)
-        offset = (o["origin_x"], o["origin_y"], 0.0)
+        offset = (o["origin_x"], o["origin_y"], o.get("origin_z", 0.0))
     elif args.translate:
         offset = (*args.translate, 0.0)
     surfaces = [s for f in args.inputs for s in read_ts(f)]

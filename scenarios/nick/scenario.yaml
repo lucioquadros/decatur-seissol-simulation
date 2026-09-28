@@ -4,6 +4,8 @@ name: nick
 # faults meshed, also sets the local origin (null = all faults in the inventory)
 faults: null
 
+ground_elevation: 206.0 # above sea level
+
 mesh:
   lc_fault: 30.0
   lc_domain: 500.0
@@ -14,11 +16,20 @@ mesh:
   # ball radius = patch.radius + margin (margin defaults to 20 m)
   nucleation_ball: {margin: 20.0, thickness: 500.0, lc: 5.0}
 
+# grid for material.yaml and the fault cohesion (data/material_units.csv)
+# z_min/z_max must include every interface
+material:
+  dx: 50.0
+  dz: 5.0
+  z_min: -2350.0
+  z_max: -1600.0
+  taper: 1000.0   # horizons blend into their mean elevation over this distance
+
 friction:
   mu_s: 0.60
   mu_d: 0.45
   d_c: 0.02
-  cohesion: {z_switch: -1950.0, above: -0.5e6, below: -0.1e6}
+  cohesion: {Eau Claire: -0.5e6, Mt. Simon: -0.5e6, Argenta: -0.5e6, Precambrian: -0.1e6}
 
 stress:
   sv: 25.0e3

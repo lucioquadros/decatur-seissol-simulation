@@ -8,6 +8,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATES_DIR = REPO_ROOT / "templates"
 SCENARIOS_DIR = REPO_ROOT / "scenarios"
 INVENTORY_CSV = REPO_ROOT / "data" / "fault_inventory.csv"
+MATERIAL_CSV = REPO_ROOT / "data" / "material_units.csv"
 PATHS_FILE = REPO_ROOT / "config" / "paths.yaml"
 
 

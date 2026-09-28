@@ -21,7 +21,7 @@ def main():
     changed = write(render(sc), outdir)
     c = sc.patch.center
     print(f"{sc.name}: patch on {sc.raw['patch']['fault']} at ({c[0]}, {c[1]}, {c[2]}), "
-          f"origin ({sc.origin[0]:.3f}, {sc.origin[1]:.3f})")
+          f"origin ({sc.origin[0]:.3f}, {sc.origin[1]:.3f}, {sc.origin[2]:g})")
     print(f"{outdir}: " + (", ".join(p.name for p in changed) + " updated" if changed
                            else "up to date"))
 

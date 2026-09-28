@@ -62,7 +62,8 @@ def test_corners_lie_on_the_plane(strike, dip):
 
 def test_origin_and_point_on_fault():
     inv = pd.DataFrame({"x_min": [0, 50], "x_max": [10, 100], "y_min": [-20, 0], "y_max": [0, 40]})
-    assert local_origin(inv) == (50.0, 10.0)
+    assert local_origin(inv) == (50.0, 10.0, 0.0)
+    assert local_origin(inv, 206.0) == (50.0, 10.0, 206.0)
     row = pd.Series({"centroid_x": 1.0, "centroid_y": 2.0, "centroid_z": -100.0,
                      "strike_deg": 90.0, "dip_deg": 90.0})
     np.testing.assert_allclose(point_on_fault(row, 5.0, 10.0), [6, 2, -110], atol=1e-12)

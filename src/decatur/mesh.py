@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .geometry import fault_corners
+from .geometry import fault_corners, local_centroid
 
 TAG_FREE_SURFACE = 101
 TAG_DYNAMIC_RUPTURE = 103
@@ -34,16 +34,15 @@ class MeshOptions:
 
 def domain_bounds(faults: pd.DataFrame, origin, buffer: float, depth_buffer: float):
     """(x0, y0, z0, x1, y1, z1) in the local frame, top at z = 0."""
-    ox, oy = origin
+    ox, oy, oz = origin
     return (faults.x_min.min() - ox - buffer, faults.y_min.min() - oy - buffer,
-            -(faults.depth_bottom_m.max() + depth_buffer),
+            -(faults.depth_bottom_m.max() + oz + depth_buffer),
             faults.x_max.max() - ox + buffer, faults.y_max.max() - oy + buffer, 0.0)
 
 
 def local_corners(row, origin) -> np.ndarray:
     """Return fault corners in the local frame."""
-    center = (row.centroid_x - origin[0], row.centroid_y - origin[1], row.centroid_z)
-    return fault_corners(center, row.strike_deg, row.dip_deg,
+    return fault_corners(local_centroid(row, origin), row.strike_deg, row.dip_deg,
                          row.extent_strike_m, row.extent_dip_m)
 
 
@@ -156,6 +155,41 @@ def build_mesh(faults: pd.DataFrame, origin, o: MeshOptions, outdir,
         return stats
     finally:
         gmsh.finalize()
+
+
+def read_msh(path) -> tuple[np.ndarray, dict[int, np.ndarray]]:
+    """Nodes (N, 3) and, per physical tag, the element node indices (tets or triangles)."""
+    import gmsh
+    gmsh.initialize()
+    try:
+        gmsh.option.setNumber("General.Verbosity", 1)
+        gmsh.open(str(path))
+        tags, coords, _ = gmsh.model.mesh.getNodes()
+        index = np.empty(int(tags.max()) + 1, dtype=np.int64)
+        index[tags.astype(np.int64)] = np.arange(len(tags))
+        groups = {}
+        for dim, phys in gmsh.model.getPhysicalGroups():
+            per = 4 if dim == 3 else 3
+            conn = [gmsh.model.mesh.getElements(dim, e)[2]
+                    for e in gmsh.model.getEntitiesForPhysicalGroup(dim, phys)]
+            nodes = np.concatenate([c for parts in conn for c in parts]).astype(np.int64)
+            groups[phys] = index[nodes].reshape(-1, per)
+        return coords.reshape(-1, 3), groups
+    finally:
+        gmsh.finalize()
+
+
+def nearest_fault(points: np.ndarray, faults: pd.DataFrame, origin) -> np.ndarray:
+    """Row index of the planar fault closest to each point (in the local frame)."""
+    from .geometry import local_centroid, strike_dip_vectors
+    dist = np.empty((len(faults), len(points)))
+    for i, (_, row) in enumerate(faults.iterrows()):
+        s, d, n = strike_dip_vectors(row.strike_deg, row.dip_deg)
+        v = points - local_centroid(row, origin)
+        outside = (np.maximum(np.abs(v @ s) - row.extent_strike_m / 2, 0.0)
+                   + np.maximum(np.abs(v @ d) - row.extent_dip_m / 2, 0.0))
+        dist[i] = np.abs(v @ n) + outside
+    return dist.argmin(axis=0)
 
 
 def read_puml(path) -> tuple[np.ndarray, np.ndarray]:
