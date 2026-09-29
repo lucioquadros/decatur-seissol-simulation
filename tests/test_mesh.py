@@ -4,7 +4,7 @@ import pytest
 
 from decatur.mesh import (TAG_ABSORBING, TAG_DYNAMIC_RUPTURE, TAG_FREE_SURFACE, TAG_VOLUME,
                           MeshOptions, build_mesh, corners_outside, domain_bounds, nearest_fault,
-                          read_msh, tet_quality)
+                          read_msh, tet_quality, tet_volume_inradius)
 
 UNIT_TET = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=float)
 
@@ -15,6 +15,12 @@ def test_tet_quality_unit_tet():
     # r = 3V / A = 0.5 / (1.5 + sqrt(3)/2)
     assert q["insphere_min"] == pytest.approx(0.5 / (1.5 + np.sqrt(3) / 2))
     assert q["inverted"] == 0
+
+
+def test_tet_volume_inradius_unit_tet():
+    vol, r = tet_volume_inradius(UNIT_TET, np.array([[0, 1, 2, 3], [0, 2, 1, 3]]))
+    np.testing.assert_allclose(vol, [1 / 6, -1 / 6])
+    np.testing.assert_allclose(r, 0.5 / (1.5 + np.sqrt(3) / 2))
 
 
 def test_tet_quality_flags_inverted_and_sliver():
@@ -59,6 +65,17 @@ def test_coarse_mesh_builds(tmp_path):
     faces = xyz[groups[TAG_DYNAMIC_RUPTURE]].mean(axis=1)
     assert np.all(nearest_fault(faces, one_fault(), (1000.0, 2000.0, 0.0)) == 0)
     assert np.all(np.abs(xyz[groups[TAG_FREE_SURFACE]][..., 2]) < 1e-6)
+
+
+def test_refinement_box_adds_elements(tmp_path):
+    pytest.importorskip("gmsh")
+    opts = MeshOptions(lc_fault=100.0, lc_domain=400.0, dist_min=100.0, dist_max=600.0,
+                       buffer=500.0, depth_buffer=500.0, threads=2)
+    plain = build_mesh(one_fault(), (1000.0, 2000.0, 0.0), opts, tmp_path, log=lambda *a: None)
+    opts.box = (-300.0, -300.0, -1000.0, 300.0, 300.0, 0.0)
+    opts.box_thickness, opts.lc_box = 100.0, 80.0
+    boxed = build_mesh(one_fault(), (1000.0, 2000.0, 0.0), opts, tmp_path, log=lambda *a: None)
+    assert boxed["tets"] > 1.5 * plain["tets"]
 
 
 def test_nearest_fault_picks_the_plane():

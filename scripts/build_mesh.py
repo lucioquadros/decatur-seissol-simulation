@@ -23,7 +23,8 @@ SIZE_FLAGS = (("lc-fault", "element size on the faults"),
               ("depth-buffer", "extra depth below the deepest fault"),
               ("lc-nuc", "element size inside the nucleation ball"),
               ("nuc-radius", "fully refined ball radius (scenario: patch radius + margin)"),
-              ("nuc-thickness", "taper from --lc-nuc back to --lc-domain"))
+              ("nuc-thickness", "taper from --lc-nuc back to --lc-domain"),
+              ("lc-box", "element size inside the refinement box"))
 BALL_FLAGS = ("lc_nuc", "nuc_radius", "nuc_thickness")
 
 
@@ -55,6 +56,8 @@ def main():
         if getattr(args, name) is not None:
             setattr(opts, name, getattr(args, name))
 
+    if opts.box is None and args.lc_box is not None:
+        sys.exit("--lc-box needs a refinement_box in the scenario")
     if opts.nuc_center is None and any(getattr(args, f) is not None for f in BALL_FLAGS):
         sys.exit("--lc-nuc, --nuc-radius and --nuc-thickness need a nucleation_ball "
                  "in the scenario")
@@ -78,6 +81,11 @@ def main():
         c = opts.nuc_center
         print(f"nucleation ball at ({c[0]:.2f}, {c[1]:.2f}, {c[2]:.2f}): {opts.lc_nuc:g} m "
               f"within {opts.nuc_radius:g} m, taper {opts.nuc_thickness:g} m")
+
+    if opts.box is not None:
+        b = opts.box
+        print(f"refinement box x {b[0]:.0f}..{b[3]:.0f}  y {b[1]:.0f}..{b[4]:.0f}  "
+              f"z {b[2]:.0f}..{b[5]:.0f} m: {opts.lc_box:g} m, taper {opts.box_thickness:g} m")
 
     stats = build_mesh(faults, sc.origin, opts, out, generate=not args.no_mesh,
                        verbose=args.verbose)

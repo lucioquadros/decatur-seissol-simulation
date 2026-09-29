@@ -32,7 +32,8 @@ SCHEMA = {
     "ground_elevation": None,
     "mesh": {**_leaves("lc_fault", "lc_domain", "dist_min", "dist_max", "buffer",
                        "depth_buffer"),
-             "nucleation_ball": _leaves("margin", "thickness", "lc")},
+             "nucleation_ball": _leaves("margin", "thickness", "lc"),
+             "refinement_box": _leaves("margin", "thickness", "lc")},
     "material": _leaves("dx", "dz", "z_min", "z_max", "taper"),
     "friction": {**_leaves("mu_s", "mu_d", "d_c"), "cohesion": None},
     "stress": _leaves("sv", "shmax", "shmin", "pf", "shmax_azimuth"),
@@ -103,6 +104,11 @@ class Scenario:
             opts.update(nuc_center=self.patch.center, lc_nuc=float(ball["lc"]),
                         nuc_radius=self.patch.radius + float(ball.get("margin", BALL_MARGIN)),
                         nuc_thickness=float(ball["thickness"]))
+        box = m.get("refinement_box")
+        if box:
+            margin = float(box["margin"])
+            opts.update(box=domain_bounds(self.faults, self.origin, margin, margin),
+                        box_thickness=float(box["thickness"]), lc_box=float(box["lc"]))
         return opts
 
 

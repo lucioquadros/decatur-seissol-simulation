@@ -7,7 +7,7 @@ faults: null
 ground_elevation: 206.0 # above sea level
 
 mesh:
-  lc_fault: 30.0
+  lc_fault: 15.0
   lc_domain: 500.0
   dist_min: 200.0
   dist_max: 3000.0
@@ -43,7 +43,7 @@ patch:
   fault: Bob Will
   strike_offset: 0.0
   dip_offset: 296.0
-  radius: 70.0
+  radius: 95.0
   normal_tol: 1.0
   dp: 2.0e6
   dtau: 0.0

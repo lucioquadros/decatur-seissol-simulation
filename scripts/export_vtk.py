@@ -23,6 +23,8 @@ def parse_args():
     p.add_argument("scenario", help="scenario name (scenarios/<name>) or scenario.yaml path")
     p.add_argument("--mesh", help="default: WORK_DIR/<scenario>/mesh.msh")
     p.add_argument("--outdir", help="default: the mesh's directory")
+    p.add_argument("--box", type=float, nargs=6, metavar=("X0", "X1", "Y0", "Y1", "Z0", "Z1"),
+                   help="keep only the tets centered in this box in mesh.vtu")
     p.add_argument("--data-dir", help="horizon .ts files (default: DATA_DIR in config/paths.yaml)")
     return p.parse_args()
 
@@ -51,10 +53,16 @@ def main():
 
     xyz, groups = read_msh(mesh)
     tets = groups[TAG_VOLUME]
-    unit = model.unit_at(xyz[tets].mean(axis=1))
-    write_vtu(out / "mesh.vtu", xyz, tets, VTK_TETRA, {"unit_id": unit})
+    centers = xyz[tets].mean(axis=1)
+    total = len(tets)
+    if args.box:
+        lo, hi = np.array(args.box[0::2]), np.array(args.box[1::2])
+        inside = np.all((centers >= lo) & (centers <= hi), axis=1)
+        tets, centers = tets[inside], centers[inside]
+    unit = model.unit_at(centers)
+    write_vtu(out / "mesh.vtu", *compact(xyz, tets), VTK_TETRA, {"unit_id": unit})
     counts = ", ".join(f"{u.name} {np.sum(unit == u.id):,}" for u in sc.units)
-    print(f"wrote {out / 'mesh.vtu'}: {len(tets):,} tets ({counts})")
+    print(f"wrote {out / 'mesh.vtu'}: {len(tets):,} of {total:,} tets ({counts})")
 
     tris = groups[TAG_DYNAMIC_RUPTURE]
     centers = xyz[tris].mean(axis=1)

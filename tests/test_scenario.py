@@ -5,6 +5,7 @@ import pytest
 import yaml
 
 from decatur.geometry import fault_row, point_on_fault, strike_dip_vectors
+from decatur.mesh import domain_bounds
 from decatur.scenario import BALL_MARGIN, load_scenario, render, scenario_path, write
 from decatur.stress import stress_tensor
 from conftest import SCENARIOS, load_easi, lua_functions
@@ -250,6 +251,19 @@ def test_ball_follows_patch_radius(tmp_path):
     path.write_text(yaml.safe_dump(raw))
     with pytest.raises(ValueError):
         load_scenario(path).mesh_options()
+
+
+def test_refinement_box_around_the_faults(tmp_path):
+    raw = yaml.safe_load(scenario_path("bob_will").read_text())
+    assert "box" not in load_scenario("bob_will").mesh_options()
+    raw["mesh"]["refinement_box"] = {"margin": 1000.0, "thickness": 800.0, "lc": 60.0}
+    path = tmp_path / "scenario.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    sc = load_scenario(path)
+    o = sc.mesh_options()
+    assert o["box"] == domain_bounds(sc.faults, sc.origin, 1000.0, 1000.0)
+    assert o["box"][5] == 0.0
+    assert (o["box_thickness"], o["lc_box"]) == (800.0, 60.0)
 
 
 def test_unknown_keys_are_rejected(tmp_path):

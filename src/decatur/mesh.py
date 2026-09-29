@@ -28,6 +28,9 @@ class MeshOptions:
     lc_nuc: float = 10.0
     nuc_radius: float = 50.0
     nuc_thickness: float = 200.0
+    box: tuple | None = None  # (x0, y0, z0, x1, y1, z1)
+    box_thickness: float = 1000.0
+    lc_box: float = 100.0
     threads: int = 1
     algorithm3d: str = "delaunay"
 
@@ -90,6 +93,13 @@ def _size_field(gmsh, fault_surfs, o: MeshOptions) -> None:
                      ("VIn", o.lc_nuc), ("VOut", o.lc_domain)):
             f.setNumber(ball, k, v)
         fields.append(ball)
+    if o.box is not None:
+        box = f.add("Box")
+        for k, v in zip(("XMin", "YMin", "ZMin", "XMax", "YMax", "ZMax"), o.box):
+            f.setNumber(box, k, float(v))
+        for k, v in (("VIn", o.lc_box), ("VOut", o.lc_domain), ("Thickness", o.box_thickness)):
+            f.setNumber(box, k, v)
+        fields.append(box)
     fmin = f.add("Min")
     f.setNumbers(fmin, "FieldsList", fields)
     f.setAsBackgroundMesh(fmin)
@@ -198,18 +208,23 @@ def read_puml(path) -> tuple[np.ndarray, np.ndarray]:
         return np.asarray(f["geometry"]), np.asarray(f["connect"])
 
 
-def tet_quality(xyz: np.ndarray, cells: np.ndarray) -> dict:
-    """Tetrahedron quality metrics: signed volume, insphere radius, inverted/sliver/tiny counts."""
+def tet_volume_inradius(xyz: np.ndarray, cells: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Signed volume and insphere radius of every tetrahedron."""
     v0, v1, v2, v3 = (xyz[cells[:, i]] for i in range(4))
     vol = np.einsum("ij,ij->i", np.cross(v1 - v0, v2 - v0), v3 - v0) / 6.0
-    absv = np.abs(vol)
 
     def area(a, b, c):
         return 0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1)
 
     faces = area(v0, v1, v2) + area(v0, v1, v3) + area(v0, v2, v3) + area(v1, v2, v3)
-    r_in = 3.0 * absv / np.maximum(faces, 1e-30) # 1e-30 avoids divide-by-zero for degenerate tets
-    med_v, med_r = np.median(absv), np.median(r_in) 
+    return vol, 3.0 * np.abs(vol) / np.maximum(faces, 1e-30) # 1e-30 avoids divide-by-zero for degenerate tets
+
+
+def tet_quality(xyz: np.ndarray, cells: np.ndarray) -> dict:
+    """Tetrahedron quality metrics: signed volume, insphere radius, inverted/sliver/tiny counts."""
+    vol, r_in = tet_volume_inradius(xyz, cells)
+    absv = np.abs(vol)
+    med_v, med_r = np.median(absv), np.median(r_in)
     worst = int(r_in.argmin())
     return {
         "elements": len(cells),

@@ -17,7 +17,6 @@ interpreted Petrel faults:
 ```
 config/paths.example.yaml   local DATA_DIR, REPORTS_DIR, WORK_DIR (copy to config/paths.yaml)
 data/                       data tables (fault_inventory.csv, material_units.csv)
-docs/                       physics.md (stress, nucleation), materials.md (units, depth datum), visualization.md
 references/<scenario>/      as-run inputs from seisclass3 and reference metrics (coarse runs)
 scenarios/<scenario>/       scenario.yaml: every knob of one scenario
 scripts/                    command-line tools (thin wrappers around src/decatur)
@@ -43,9 +42,11 @@ python -m pytest
 
 ```bash
 python scripts/check_cfs.py bob_will                   # background CFS < 0, patch > 0
+python scripts/estimate_resolution.py bob_will         # cohesive zone, fault size, patch, max frequency
 python scripts/make_scenario.py bob_will               # -> WORK_DIR/bob_will/{fault.yaml,parameters.par,material.yaml,origin.json}
 python scripts/build_material.py bob_will              # -> WORK_DIR/bob_will/material.nc (unit grid)
 python scripts/build_mesh.py bob_will                  # -> WORK_DIR/bob_will/mesh.msh, same origin.json
+python scripts/estimate_cost.py bob_will               # LTS clusters, node-hours, wavefield size
 python scripts/export_vtk.py bob_will                  # -> mesh.vtu, faults.vtu, interfaces.vtu for ParaView
 pumgen -s msh2 mesh.msh mesh.puml.hdf5
 python scripts/check_mesh.py mesh.puml.hdf5
@@ -60,10 +61,12 @@ python scripts/plot_output.py output --vs 3160 --rho 2730
 | `make_scenario.py` | render the SeisSol inputs of a scenario |
 | `build_material.py` | grid the material units (horizons from `DATA_DIR`) into `material.nc` for `material.yaml` and the fault cohesion |
 | `check_cfs.py` | Coulomb failure stress on every fault and at the patch, and the faults inside the patch slab, same model as `fault.yaml` |
-| `build_mesh.py` | Gmsh mesh of a scenario: its faults as planar quads and its nucleation ball, size flags override the scenario |
+| `build_mesh.py` | Gmsh mesh of a scenario: its faults as planar quads, its nucleation ball and optional refinement box, size flags override the scenario |
 | `check_mesh.py` | inverted, sliver and tiny-insphere tetrahedra in a PUML mesh |
 | `convert_ts.py` | convert `.ts` → ASCII STL, optionally in the local frame |
 | `export_vtk.py` | Export scenario's Gmsh mesh → `.vtu` for ParaView {mesh.vtu, faults.vtu, and interfaces.vtu} |
+| `estimate_resolution.py` | static and measured cohesive zone, fault element size for the error limits, patch vs critical radius, highest frequency along the size field |
+| `estimate_cost.py` | LTS clusters of a mesh, element updates, core- and node-hours, wavefield output size |
 | `plot_output.py` | moment rate, energy and performance figures, `derived_quantities.csv` |
 
 ## References
