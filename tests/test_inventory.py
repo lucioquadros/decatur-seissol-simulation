@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -21,9 +23,14 @@ def test_planar_rectangle():
     assert row["depth_top_m"] < row["depth_bottom_m"]
 
 
-@pytest.mark.skipif(data_dir() is None, reason="DATA_DIR not configured")
+def fault_files() -> list[Path]:
+    d = data_dir()
+    return sorted((d / "Faults").glob("*.ts")) if d else []
+
+
+@pytest.mark.skipif(not fault_files(), reason="no fault .ts files in DATA_DIR/Faults")
 def test_regenerates_committed_inventory():
-    files = sorted((data_dir() / "Faults").glob("*.ts"))
+    files = fault_files()
     got = build_inventory([read_tsurf(f) for f in files])
     want = pd.read_csv(INVENTORY_CSV)
     pd.testing.assert_frame_equal(got.reset_index(drop=True), want, check_dtype=False)

@@ -20,6 +20,7 @@ data/                       data tables (fault_inventory.csv, material_units.csv
 references/<scenario>/      as-run inputs from seisclass3 and reference metrics (coarse runs)
 scenarios/<scenario>/       scenario.yaml: every knob of one scenario
 scripts/                    command-line tools (thin wrappers around src/decatur)
+sdumont/                    SDumont job scripts (tools, mesh, pumgen, evaluate_easi)
 src/decatur/                python package
 templates/                  fault.yaml, parameters.par, material.yaml templates
 tests/                      pytest
@@ -50,8 +51,32 @@ python scripts/estimate_cost.py bob_will               # LTS clusters, node-hour
 python scripts/export_vtk.py bob_will                  # -> mesh.vtu, faults.vtu, interfaces.vtu for ParaView
 pumgen -s msh2 mesh.msh mesh.puml.hdf5
 python scripts/check_mesh.py mesh.puml.hdf5
+# evaluate_easi source: https://github.com/SeisSol/Meshing/tree/master/evaluate_material
+evaluate_easi -m mesh.puml.hdf5 -e material.yaml -o easi_material
+evaluate_easi -m mesh.puml.hdf5 -e fault.yaml -o easi_fault
+python scripts/check_easi.py bob_will
 python scripts/plot_output.py output --vs 3160 --rho 2730
 ```
+
+## SDumont
+
+The folder in the project space (`DECATUR_BASE`, default
+`/petrobr/parceirosbr/sismo_co2/$USER`) holds this repository as `decatur/`
+(with its own `.venv` and `config/paths.yaml`), the horizon `.ts` files, the
+work directory `decatur-work/`, and SeisSol's `Meshing/` for `evaluate_easi`.
+Spack and `seissol-env` come from
+[seissol-spack-installer](https://github.com/lucioquadros/seissol-spack-installer).
+Submit the jobs from the repository root.
+
+| File | Where | Purpose |
+|---|---|---|
+| `sdumont/env.sh` | sourced | paths, OpenMPI module, Spack |
+| `sdumont/tools_fetch.sh` | login node | Spack environment `decatur-tools` (pumgen, cmake) concretized and mirrored, `Meshing` cloned |
+| `sdumont/tools_build.sbatch` | job | offline install of `decatur-tools`, `evaluate_easi` built against `seissol-env` |
+| `sdumont/mesh.sbatch <scenario> <dir> [flags]` | job | `make_scenario`, `build_material`, `build_mesh` (HXT, 32 threads) |
+| `sdumont/pumgen.sbatch <dir>` | job | `pumgen -s msh2`, then `check_mesh` |
+| `sdumont/evaluate_easi.sbatch <scenario> <dir>` | job | `evaluate_easi` on `material.yaml` and `fault.yaml`, then `check_easi` |
+| `sdumont/proxy.sbatch [threads ...]` | job | SeisSol proxy at 100,000 elements, hardware GFLOPS per core for `estimate_cost.py` |
 
 ## Scripts
 
@@ -63,6 +88,7 @@ python scripts/plot_output.py output --vs 3160 --rho 2730
 | `check_cfs.py` | Coulomb failure stress on every fault and at the patch, and the faults inside the patch slab, same model as `fault.yaml` |
 | `build_mesh.py` | Gmsh mesh of a scenario: its faults as planar quads, its nucleation ball and optional refinement box, size flags override the scenario |
 | `check_mesh.py` | inverted, sliver and tiny-insphere tetrahedra in a PUML mesh |
+| `check_easi.py` | compare the `evaluate_easi` output of `material.yaml` and `fault.yaml` with the Python model |
 | `convert_ts.py` | convert `.ts` → ASCII STL, optionally in the local frame |
 | `export_vtk.py` | Export scenario's Gmsh mesh → `.vtu` for ParaView {mesh.vtu, faults.vtu, and interfaces.vtu} |
 | `estimate_resolution.py` | static and measured cohesive zone, fault element size for the error limits, patch vs critical radius, highest frequency along the size field |

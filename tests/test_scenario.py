@@ -6,7 +6,9 @@ import yaml
 
 from decatur.geometry import fault_row, point_on_fault, strike_dip_vectors
 from decatur.mesh import domain_bounds
-from decatur.scenario import BALL_MARGIN, load_scenario, render, scenario_path, write
+from decatur.material import axis
+from decatur.scenario import (BALL_MARGIN, easi_parameters, load_scenario, render,
+                               scenario_path, write)
 from decatur.stress import stress_tensor
 from conftest import SCENARIOS, load_easi, lua_functions
 
@@ -276,3 +278,25 @@ def test_unknown_keys_are_rejected(tmp_path):
         load_scenario(path)
     assert "mesh.nucleation_ball.margn" in str(err.value)
     assert "extra" in str(err.value)
+
+
+@pytest.mark.parametrize("name", SCENARIOS)
+def test_easi_parameters_follow_units_and_stress_model(name):
+    sc = load_scenario(name)
+    x, y, z = axis(-500.0, 500.0, 50.0), axis(-500.0, 500.0, 50.0), axis(-2400.0, -1700.0, 5.0)
+    grid = (x, y, z, np.full((len(z), len(y), len(x)), 2, dtype=np.int32))
+    pts = np.array([[0.0, 0.0, -2000.0], [0.0, 0.0, -100.0], [0.0, 0.0, -2500.0],
+                    sc.patch.center])
+    got = easi_parameters(sc, pts, grid)
+    top, mid, bottom = sc.units[0], sc.units[1], sc.units[-1]
+    np.testing.assert_allclose(got["material.yaml"]["mu"], [mid.mu, top.mu, bottom.mu, mid.mu])
+    np.testing.assert_allclose(got["material.yaml"]["lambda"][:3], [mid.lam, top.lam, bottom.lam])
+    f = got["fault.yaml"]
+    np.testing.assert_allclose(f["cohesion"][:3],
+                               [sc.cohesion_by_unit[u.id] for u in (mid, top, bottom)])
+    sig = stress_tensor(pts, sc.gradients, sc.patch)
+    for k, (i, j) in zip(STRESS, ((0, 0), (0, 1), (1, 1), (2, 2))):
+        np.testing.assert_allclose(f[k], sig[:, i, j])
+    background = stress_tensor(pts[3:], sc.gradients)[0, 2, 2]
+    assert f["s_zz"][3] == pytest.approx(background + sc.patch.dp)
+    assert np.all(f["mu_s"] == sc.mu_s)

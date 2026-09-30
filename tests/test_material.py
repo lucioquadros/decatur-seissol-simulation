@@ -5,7 +5,7 @@ import yaml
 
 from decatur.material import (LayeredModel, Unit, axis, build_model, check_units,
                               check_vertical_range, grid_surface, rasterize, read_unit_grid,
-                              read_units, write_unit_grid)
+                              read_units, unit_at, write_unit_grid)
 from decatur.scenario import load_scenario, render, scenario_path
 from decatur.ts_io import TSurf
 from conftest import data_dir, lua_functions
@@ -160,3 +160,12 @@ def test_units_at_ccs1_well_tops():
 
     assert [unit(d) for d in (1000.0, 1685.0, 1695.0, 2143.0, 2153.0, 2250.0)] == \
         [1, 1, 2, 2, 3, 4]
+
+
+def test_unit_at_takes_nearest_node_and_top_bottom_off_grid():
+    x, y, z = axis(0.0, 100.0, 50.0), axis(0.0, 100.0, 50.0), axis(-100.0, 0.0, 10.0)
+    ids = np.broadcast_to(np.arange(len(z))[:, None, None] + 10, (len(z), len(y), len(x)))
+    pts = np.array([[1.0, 99.0, -100.0], [74.0, 26.0, -55.1], [60.0, 0.0, -44.0],
+                    [0.0, 0.0, 0.0], [0.0, 0.0, 5.0], [0.0, 0.0, -100.1]])
+    got = unit_at(pts, (x, y, z, ids), top_id=1, bottom_id=4)
+    np.testing.assert_array_equal(got, [10, 14, 16, 20, 1, 4])

@@ -21,6 +21,9 @@ config/paths.yaml
 output/
 work/
 
+# slurm logs
+*.out
+
 # python
 __pycache__/
 *.py[cod]

@@ -11,9 +11,9 @@ import yaml
 
 from .config import INVENTORY_CSV, MATERIAL_CSV, SCENARIOS_DIR, TEMPLATES_DIR
 from .geometry import fault_row, local_origin, point_on_fault, select_faults
-from .material import LayeredModel, Unit, axis, build_model, read_units
+from .material import LayeredModel, Unit, axis, build_model, read_units, unit_at
 from .mesh import domain_bounds
-from .stress import Patch, StressGradients
+from .stress import Patch, StressGradients, stress_tensor
 
 # keeps the patch edge, where rupture starts, inside the fully refined ball
 BALL_MARGIN = 20.0
@@ -231,6 +231,27 @@ def render(sc: Scenario, templates_dir=TEMPLATES_DIR) -> dict[str, str]:
              for name in ("fault.yaml", "parameters.par", "material.yaml")}
     files["origin.json"] = origin_json(sc.origin, sc.raw.get("faults"))
     return files
+
+
+def easi_parameters(sc: Scenario, points, grid) -> dict[str, dict[str, np.ndarray]]:
+    """What material.yaml and fault.yaml evaluate to at points (N, 3)."""
+    ids = unit_at(points, grid, sc.units[0].id, sc.units[-1].id)
+
+    def by_unit(value) -> np.ndarray:
+        table = np.full(max(u.id for u in sc.units) + 1, np.nan)
+        for u in sc.units:
+            table[u.id] = value(u)
+        return table[ids]
+
+    material = {k: by_unit(lambda u, k=k: _material_values(u)[k]) for k in ("rho", "mu", "lambda")}
+    sig = stress_tensor(points, sc.gradients, sc.patch)
+    fr = sc.raw["friction"]
+    n = len(ids)
+    fault = {"cohesion": by_unit(lambda u: sc.cohesion_by_unit[u.id]),
+             "s_xx": sig[:, 0, 0], "s_xy": sig[:, 0, 1], "s_yy": sig[:, 1, 1], "s_zz": sig[:, 2, 2],
+             "s_xz": np.zeros(n), "s_yz": np.zeros(n),
+             **{k: np.full(n, float(fr[k])) for k in ("mu_s", "mu_d", "d_c")}}
+    return {"material.yaml": material, "fault.yaml": fault}
 
 
 def origin_json(origin, faults=None) -> str:

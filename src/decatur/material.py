@@ -183,3 +183,14 @@ def read_unit_grid(path):
     with Dataset(path) as nc:
         return (np.asarray(nc["x"][:]), np.asarray(nc["y"][:]), np.asarray(nc["z"][:]),
                 np.rint(np.asarray(nc["unit_id"][:])).astype(np.int32))
+
+
+def unit_at(points, grid, top_id: int, bottom_id: int) -> np.ndarray:
+    """Unit id at points (N, 3) as material.yaml gives it: nearest node, else top/bottom unit."""
+    x, y, z, ids = grid
+    p = np.atleast_2d(np.asarray(points, dtype=float))
+    i, j, k = (np.clip(np.rint((p[:, c] - a[0]) / (a[1] - a[0])).astype(np.int64), 0, len(a) - 1)
+               for c, a in enumerate((x, y, z)))
+    out = ids[k, j, i]
+    out = np.where(p[:, 2] > z[-1], top_id, out)
+    return np.where(p[:, 2] < z[0], bottom_id, out)

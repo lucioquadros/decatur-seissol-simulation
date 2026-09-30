@@ -1,0 +1,20 @@
+--- a/evaluate_material/src/main.cpp
++++ b/evaluate_material/src/main.cpp
+@@ -11,7 +11,7 @@
+ 
+ int main(int argc, char** argv) {
+   MPI_Init(&argc, &argv);
+-
++  {
+   utils::Args args;
+   args.addOption("mesh", 'm', "mesh file (h5)");
+   args.addOption("easi", 'e', "easi file (yaml)");
+@@ -38,7 +38,7 @@
+   Writer writer(outputFilePrefix, mesh);
+   writer.write(parameters, material);
+   logInfo() << "Done";
+-
++  }
+   MPI_Finalize();
+ 
+   return 0;
