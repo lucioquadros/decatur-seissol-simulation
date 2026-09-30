@@ -41,9 +41,12 @@ SCHEMA = {
                      "dtau"),
     "forced_rupture": _leaves("radius", "time", "t_0"),
     "run": _leaves("end_time", "cfl", "lts"),
-    "outputs": _leaves("fault_interval", "fault_mask", "fault_refinement", "energy_interval",
-                       "wavefield", "wavefield_mask", "surface", "surface_interval",
-                       "surface_refinement", "receivers"),
+    "outputs": {**_leaves("fault_interval", "fault_mask", "fault_refinement", "energy_interval",
+                          "wavefield", "wavefield_interval", "wavefield_mask", "surface",
+                          "surface_interval", "surface_refinement", "receivers",
+                          "receiver_interval"),
+                "wavefield_region": _leaves("margin"),
+                "receiver_line": _leaves("length", "spacing", "depth")},
 }
 
 
@@ -83,10 +86,9 @@ class Scenario:
 
     def material_domain(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Material domain plus one cell (z_min..z_max)."""
-        m, g = self.raw["mesh"], self.raw["material"]
+        g = self.raw["material"]
         dx, dz = float(g["dx"]), float(g["dz"])
-        x0, y0, _, x1, y1, _ = domain_bounds(self.faults, self.origin, float(m["buffer"]),
-                                             float(m["depth_buffer"]))
+        x0, y0, _, x1, y1, _ = self.domain()
         return (axis(x0 - dx, x1 + dx, dx), axis(y0 - dx, y1 + dx, dx),
                 axis(float(g["z_min"]), float(g["z_max"]), dz))
 
@@ -94,6 +96,35 @@ class Scenario:
         x, y, _ = self.material_domain()
         return build_model(self.units, x, y, self.origin, float(self.raw["material"]["taper"]),
                            data_dir)
+
+    def domain(self) -> tuple[float, float, float, float, float, float]:
+        m = self.raw["mesh"]
+        return domain_bounds(self.faults, self.origin, float(m["buffer"]),
+                             float(m["depth_buffer"]))
+
+    def receivers(self) -> np.ndarray:
+        """(N, 3) receivers on a line through the epicenter, across the patch fault's strike."""
+        line = self.raw["outputs"]["receiver_line"]
+        length, spacing = float(line["length"]), float(line["spacing"])
+        t = np.linspace(-length / 2, length / 2, int(round(length / spacing)) + 1)
+        az = np.radians(self.patch.strike + 90.0)
+        x, y, _ = self.patch.center
+        pts = np.column_stack([x + t * np.sin(az), y + t * np.cos(az),
+                               np.full(len(t), -float(line["depth"]))])
+        x0, y0, _, x1, y1, _ = self.domain()
+        if np.any((pts[:, 0] < x0) | (pts[:, 0] > x1) | (pts[:, 1] < y0) | (pts[:, 1] > y1)):
+            raise ValueError("outputs.receiver_line leaves the mesh domain")
+        return pts
+
+    def wavefield_bounds(self) -> tuple[float, ...] | None:
+        """OutputRegionBounds (x0, x1, y0, y1, z0, z1): the faults plus a margin."""
+        region = self.raw["outputs"].get("wavefield_region")
+        if not region:
+            return None
+        margin = float(region["margin"])
+        x0, y0, z0, x1, y1, _ = domain_bounds(self.faults, self.origin, margin, margin)
+        # SeisSol ignores the bounds if any of them is exactly 0, so the top is above the surface
+        return tuple(round(float(v), 2) for v in (x0, x1, y0, y1, z0, 1.0))
 
     def mesh_options(self) -> MeshSettings:
         m = self.raw["mesh"]
@@ -216,11 +247,14 @@ def _values(sc: Scenario) -> dict[str, str]:
         "fault_refinement": str(int(out["fault_refinement"])),
         "energy_interval": _num(out["energy_interval"]),
         "wavefield": str(int(out["wavefield"])),
+        "wavefield_interval": _num(out["wavefield_interval"]),
         "wavefield_mask": " ".join(str(int(b)) for b in out["wavefield_mask"]),
+        "wavefield_bounds": " ".join(_num(v) for v in sc.wavefield_bounds() or (0.0,) * 6),
         "surface": str(int(out["surface"])),
         "surface_interval": _num(out["surface_interval"]),
         "surface_refinement": str(int(out["surface_refinement"])),
         "receivers": str(int(out["receivers"])),
+        "receiver_interval": _num(out["receiver_interval"]),
     }
 
 
@@ -229,6 +263,7 @@ def render(sc: Scenario, templates_dir=TEMPLATES_DIR) -> dict[str, str]:
     values = _values(sc)
     files = {name: Template((Path(templates_dir) / name).read_text()).substitute(values)
              for name in ("fault.yaml", "parameters.par", "material.yaml")}
+    files["receivers.dat"] = "".join(f"{x:.3f} {y:.3f} {z:.3f}\n" for x, y, z in sc.receivers())
     files["origin.json"] = origin_json(sc.origin, sc.raw.get("faults"))
     return files
 

@@ -53,9 +53,15 @@ ClusteredLTS = ${lts}                ! 1: global time stepping, 2: rate-2 LTS
 
 &Output
 OutputFile = 'output/decatur'
+Format = 6                      ! XDMF, the wavefield is not written without it
 WavefieldOutput = ${wavefield}
+TimeInterval = ${wavefield_interval}
 iOutputMask = ${wavefield_mask}
-ReceiverOutput = ${receivers}              ! must be 0 when no RFileName is given
+OutputRegionBounds = ${wavefield_bounds}   ! x0 x1 y0 y1 z0 z1, off if any is 0
+ReceiverOutput = ${receivers}
+RFileName = 'receivers.dat'
+pickdt = ${receiver_interval}                   ! receiver sampling, s
+ReceiverOutputInterval = 0.1    ! receiver output to disk, s
 Checkpoint = 0
 SurfaceOutput = ${surface}
 SurfaceOutputRefinement = ${surface_refinement}

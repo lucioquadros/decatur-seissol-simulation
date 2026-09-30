@@ -1,3 +1,4 @@
+import io
 import re
 
 import numpy as np
@@ -202,6 +203,11 @@ def test_parameters_match_scenario(case):
         ("output", "surfaceoutputinterval"): [out["surface_interval"]],
         ("output", "surfaceoutputrefinement"): [out["surface_refinement"]],
         ("output", "receiveroutput"): [out["receivers"]],
+        ("output", "pickdt"): [out["receiver_interval"]],
+        ("output", "rfilename"): ["receivers.dat"],
+        ("output", "format"): [6],
+        ("output", "timeinterval"): [out["wavefield_interval"]],
+        ("output", "outputregionbounds"): list(sc.wavefield_bounds()),
     }
     for key, value in expected.items():
         assert par[key] == [v if isinstance(v, str) else float(v) for v in value], key
@@ -300,3 +306,42 @@ def test_easi_parameters_follow_units_and_stress_model(name):
     background = stress_tensor(pts[3:], sc.gradients)[0, 2, 2]
     assert f["s_zz"][3] == pytest.approx(background + sc.patch.dp)
     assert np.all(f["mu_s"] == sc.mu_s)
+
+
+def test_receivers_on_a_line_across_the_patch_fault(case):
+    _, sc, files = case
+    line = sc.raw["outputs"]["receiver_line"]
+    pts = sc.receivers()
+    assert len(pts) == round(line["length"] / line["spacing"]) + 1
+    np.testing.assert_allclose(pts[len(pts) // 2, :2], sc.patch.center[:2], atol=1e-9)
+    step = np.diff(pts, axis=0)
+    np.testing.assert_allclose(np.linalg.norm(step, axis=1), line["spacing"])
+    strike, _, _ = strike_dip_vectors(sc.patch.strike, sc.patch.dip)
+    np.testing.assert_allclose(step @ strike, 0.0, atol=1e-9)
+    assert np.all(pts[:, 2] == -line["depth"])
+    np.testing.assert_allclose(np.loadtxt(io.StringIO(files["receivers.dat"])), pts, atol=5e-4)
+
+
+def test_receiver_line_must_stay_in_the_domain(tmp_path):
+    raw = yaml.safe_load(scenario_path("bob_will").read_text())
+    raw["outputs"]["receiver_line"]["length"] = 30000.0
+    path = tmp_path / "scenario.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ValueError, match="receiver_line"):
+        load_scenario(path).receivers()
+
+
+def test_wavefield_region_around_the_faults(tmp_path):
+    raw = yaml.safe_load(scenario_path("bob_will").read_text())
+    sc = load_scenario("bob_will")
+    margin = raw["outputs"]["wavefield_region"]["margin"]
+    x0, y0, z0, x1, y1, _ = domain_bounds(sc.faults, sc.origin, margin, margin)
+    bounds = sc.wavefield_bounds()
+    assert bounds[:5] == pytest.approx((x0, x1, y0, y1, z0), abs=0.005)
+    assert bounds[5] > 0.0 and 0.0 not in bounds
+
+    raw["outputs"]["wavefield_region"] = None
+    path = tmp_path / "scenario.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    par = parse_par(render(load_scenario(path))["parameters.par"])
+    assert par[("output", "outputregionbounds")] == [0.0] * 6

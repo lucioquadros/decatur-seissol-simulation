@@ -20,7 +20,7 @@ data/                       data tables (fault_inventory.csv, material_units.csv
 references/<scenario>/      as-run inputs from seisclass3 and reference metrics (coarse runs)
 scenarios/<scenario>/       scenario.yaml: every knob of one scenario
 scripts/                    command-line tools (thin wrappers around src/decatur)
-sdumont/                    SDumont job scripts (tools, mesh, pumgen, evaluate_easi)
+sdumont/                    SDumont job scripts (tools, mesh, pumgen, evaluate_easi, run simulation)
 src/decatur/                python package
 templates/                  fault.yaml, parameters.par, material.yaml templates
 tests/                      pytest
@@ -44,7 +44,7 @@ python -m pytest
 ```bash
 python scripts/check_cfs.py bob_will                   # background CFS < 0, patch > 0
 python scripts/estimate_resolution.py bob_will         # cohesive zone, fault size, patch, max frequency
-python scripts/make_scenario.py bob_will               # -> WORK_DIR/bob_will/{fault.yaml,parameters.par,material.yaml,origin.json}
+python scripts/make_scenario.py bob_will               # -> WORK_DIR/bob_will/{fault.yaml,parameters.par,material.yaml,receivers.dat,origin.json}
 python scripts/build_material.py bob_will              # -> WORK_DIR/bob_will/material.nc (unit grid)
 python scripts/build_mesh.py bob_will                  # -> WORK_DIR/bob_will/mesh.msh, same origin.json
 python scripts/estimate_cost.py bob_will               # LTS clusters, node-hours, wavefield size
@@ -77,13 +77,14 @@ Submit the jobs from the repository root.
 | `sdumont/pumgen.sbatch <dir>` | job | `pumgen -s msh2`, then `check_mesh` |
 | `sdumont/evaluate_easi.sbatch <scenario> <dir>` | job | `evaluate_easi` on `material.yaml` and `fault.yaml`, then `check_easi` |
 | `sdumont/proxy.sbatch [threads ...]` | job | SeisSol proxy at 100,000 elements, hardware GFLOPS per core for `estimate_cost.py` |
+| `sdumont/run.sbatch <dir>` | job | Run SeisSol simulation in `<dir>`. Output in `<dir>/output`. Nodes, ranks per node and cores per rank as `sbatch` flags (default 1 × 4 × 48). One core per rank left for the communication thread |
 
 ## Scripts
 
 | Script | Purpose |
 |---|---|
 | `fault_inventory.py` | strike, dip, extents and area of each fault `.ts` → `data/fault_inventory.csv`, optional figures |
-| `make_scenario.py` | render the SeisSol inputs of a scenario |
+| `make_scenario.py` | render the SeisSol inputs of a scenario (`--end-time` for short test runs) |
 | `build_material.py` | grid the material units (horizons from `DATA_DIR`) into `material.nc` for `material.yaml` and the fault cohesion |
 | `check_cfs.py` | Coulomb failure stress on every fault and at the patch, and the faults inside the patch slab, same model as `fault.yaml` |
 | `build_mesh.py` | Gmsh mesh of a scenario: its faults as planar quads, its nucleation ball and optional refinement box, size flags override the scenario |

@@ -33,11 +33,11 @@ def parse_args():
                    help="factor for the LTS normalization, I/O and setup (default: %(default)g)")
     p.add_argument("--cores-per-node", type=int, default=192, help="default: %(default)s")
     p.add_argument("--box", type=float, nargs=6, metavar=("X0", "X1", "Y0", "Y1", "Z0", "Z1"),
-                   help="wavefield output region (OutputRegionBounds)")
+                   help="wavefield output region (default: the scenario's OutputRegionBounds)")
     p.add_argument("--fields", type=int, default=3,
                    help="wavefield quantities written (default: %(default)s, velocities)")
-    p.add_argument("--interval", type=float, default=0.05,
-                   help="wavefield output interval, s (default: %(default)s)")
+    p.add_argument("--interval", type=float,
+                   help="wavefield output interval, s (default: the scenario's)")
     p.add_argument("--data-dir", help="horizon .ts files (default: DATA_DIR in config/paths.yaml)")
     return p.parse_args()
 
@@ -69,12 +69,14 @@ def main():
     print(f"{end_time:g} s simulated: {core_s / 3600:,.0f} core-hours = {node_h:.1f} node-hours "
           f"({args.cores_per_node} cores per node, perfect scaling)")
 
-    if args.box:
-        x0, x1, y0, y1, z0, z1 = args.box
+    box = args.box or sc.wavefield_bounds()
+    if box or int(sc.raw["outputs"]["wavefield"]):
+        x0, x1, y0, y1, z0, z1 = box or (-np.inf, np.inf) * 3
         c = centers
         inside = ((c[:, 0] >= x0) & (c[:, 0] <= x1) & (c[:, 1] >= y0) & (c[:, 1] <= y1)
                   & (c[:, 2] >= z0) & (c[:, 2] <= z1))
-        snapshots = int(np.floor(end_time / args.interval)) + 1
+        interval = args.interval or float(sc.raw["outputs"]["wavefield_interval"])
+        snapshots = int(np.floor(end_time / interval)) + 1
         size = inside.sum() * args.fields * 8 * snapshots
         print(f"wavefield: {inside.sum():,} cells in the box x {args.fields} fields x "
               f"{snapshots} snapshots = {size / 1e9:.1f} GB (double precision)")

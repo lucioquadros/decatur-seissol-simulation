@@ -61,9 +61,14 @@ outputs:
   fault_mask: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
   fault_refinement: 1
   energy_interval: 0.01
-  wavefield: 0
-  wavefield_mask: [0, 0, 0, 0, 0, 0, 1, 1, 1]
-  surface: 0
-  surface_interval: 0.5
+  wavefield: 1
+  wavefield_interval: 0.05
+  wavefield_mask: [0, 0, 0, 0, 0, 0, 1, 1, 1]   # velocities only
+  wavefield_region: {margin: 1000.0}   # box region around the faults, up to the surface (null = all)
+  surface: 1
+  surface_interval: 0.01
   surface_refinement: 1
-  receivers: 0
+  receivers: 1
+  receiver_interval: 0.005
+  # line centered on the epicenter, perpendicular to the patch fault's strike
+  receiver_line: {length: 8000.0, spacing: 100.0, depth: 1.0}
