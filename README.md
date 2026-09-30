@@ -56,6 +56,7 @@ evaluate_easi -m mesh.puml.hdf5 -e material.yaml -o easi_material
 evaluate_easi -m mesh.puml.hdf5 -e fault.yaml -o easi_fault
 python scripts/check_easi.py bob_will
 python scripts/plot_output.py output --vs 3160 --rho 2730
+python scripts/plot_waves.py output                    # receiver record section, surface PGV maps, receiver_pgv.csv
 ```
 
 ## SDumont
@@ -95,6 +96,7 @@ Submit the jobs from the repository root.
 | `estimate_resolution.py` | static and measured cohesive zone, fault element size for the error limits, patch vs critical radius, highest frequency along the size field |
 | `estimate_cost.py` | LTS clusters of a mesh, element updates, core- and node-hours, wavefield output size |
 | `plot_output.py` | moment rate, energy and performance figures, `derived_quantities.csv` |
+| `plot_waves.py` | receiver record section and peak velocity along the line, free-surface PGV maps, `receiver_pgv.csv` |
 
 ## References
 
