@@ -4,9 +4,10 @@ import numpy as np
 import pytest
 
 from conftest import SCENARIOS
-from decatur.resolution import (ERROR_LIMITS, WOLLHERR_FITS, cohesive_zone_width,
+from decatur.resolution import (ERROR_LIMITS, WOLLHERR_EDGE_RATIO, WOLLHERR_FITS,
+                                cohesive_zone_width,
                                 critical_radius, element_timestep, lts_clusters,
-                                max_fault_element_size, max_frequency, read_fault_output,
+                                max_fault_element_edge, max_frequency, read_fault_output,
                                 rupture_errors, static_cohesive_zone, strength_parameter,
                                 threshold_size, updates_per_second)
 from decatur.scenario import load_scenario, render
@@ -34,15 +35,28 @@ def test_strength_parameter_hand_value():
 
 
 @pytest.mark.parametrize("order", sorted(WOLLHERR_FITS))
-def test_max_fault_element_size_meets_every_limit(order):
-    h = max_fault_element_size(order, 50.0)
+def test_max_fault_element_edge_meets_every_limit(order):
+    h = max_fault_element_edge(order, 50.0)
     ratios = [rupture_errors(order, h, 50.0)[k] / ERROR_LIMITS[k] for k in ERROR_LIMITS]
     assert max(ratios) == pytest.approx(1.0)
     assert all(v <= ERROR_LIMITS[k] for k, v in rupture_errors(order, 0.9 * h, 50.0).items())
 
 
-def test_max_fault_element_size_scales_with_cohesive_zone():
-    assert max_fault_element_size(5, 20.0) == pytest.approx(2 * max_fault_element_size(5, 10.0))
+def test_wollherr_edge_ratio_matches_triangle_areas():
+    a = 15.0
+    h = WOLLHERR_EDGE_RATIO * a
+    assert h ** 2 / 4 == pytest.approx(np.sqrt(3) / 4 * a ** 2)
+
+
+def test_rupture_errors_at_benchmark_size():
+    # a 162 m zone and h = 106 m (their finest test mesh) is a Gmsh edge of 106 / 3^(1/4)
+    a, b = WOLLHERR_FITS[5]["peak_slip_rate"]
+    e = rupture_errors(5, 106.0 / WOLLHERR_EDGE_RATIO, 162.0)["peak_slip_rate"]
+    assert e == pytest.approx(10 ** (a * np.log10(106.0) + b))
+
+
+def test_max_fault_element_edge_scales_with_cohesive_zone():
+    assert max_fault_element_edge(5, 20.0) == pytest.approx(2 * max_fault_element_edge(5, 10.0))
 
 
 def test_threshold_size_ramp():

@@ -19,7 +19,7 @@ import pandas as pd
 from decatur.config import load_paths
 from decatur.geometry import fault_row, local_centroid, strike_dip_vectors
 from decatur.resolution import (ERROR_LIMITS, GMSH_EDGE_RATIO, cohesive_zone_width,
-                                critical_radius, max_fault_element_size, max_frequency,
+                                critical_radius, max_fault_element_edge, max_frequency,
                                 read_fault_output, rupture_errors, static_cohesive_zone,
                                 strength_parameter, threshold_size)
 from decatur.scenario import load_scenario
@@ -163,7 +163,7 @@ def main():
 
     limits = ", ".join(f"{k.replace('_', ' ')} {v:g}%" for k, v in ERROR_LIMITS.items())
     print(f"\ndesign minimum cohesive zone {design:.1f} m, order {args.order}: "
-          f"fault size <= {max_fault_element_size(args.order, design):.1f} m for {limits}")
+          f"fault edge <= {max_fault_element_edge(args.order, design):.1f} m for {limits}")
     print(f"  {'h (m)':>7s}{'zone / h':>15s}{'arrival %':>11s}{'PSR %':>8s}{'slip %':>8s}")
     for h in args.sizes:
         e = rupture_errors(args.order, h, design)

@@ -24,6 +24,9 @@ WOLLHERR_FITS = {
 # Mean tetrahedron edge / Gmsh target size on HXT meshes, the same at every distance
 # from the faults (docs/resolution.md). Fault triangles match the target size.
 GMSH_EDGE_RATIO = 1.4
+# Wollherr's h is the hypotenuse of fault triangles (area h^2 / 4). A Gmsh
+# fault triangle has the same sampling density at h = 3^(1/4) a.
+WOLLHERR_EDGE_RATIO = 3.0 ** 0.25
 # percent, Day et al. (2005)
 # TO DO: double check 0.2 rupture arrival error limit, currently this only comes from Wollherr et al. (2018).
 # TO DO: check Day et al. (2005) carefully.
@@ -53,14 +56,15 @@ def strength_parameter(tau_0, tau_s, tau_d) -> np.ndarray:
 
 
 def rupture_errors(order: int, h: float, cohesive_zone: float) -> dict[str, float]:
-    """Expected average errors (%) of an elastic run of this order and on-fault element size (Wollherr et al. 2018)."""
-    x = np.log10(h * WOLLHERR_COHESIVE_ZONE / cohesive_zone)
+    """Expected average errors (%) of an elastic run of this order and Gmsh fault edge h (Wollherr et al. 2018)."""
+    x = np.log10(WOLLHERR_EDGE_RATIO * h * WOLLHERR_COHESIVE_ZONE / cohesive_zone)
     return {k: float(10 ** (a * x + b)) for k, (a, b) in WOLLHERR_FITS[order].items()}
 
 
-def max_fault_element_size(order: int, cohesive_zone: float, limits=ERROR_LIMITS) -> float:
-    """Largest on-fault element size that keeps every error within its limit."""
-    return min(cohesive_zone / WOLLHERR_COHESIVE_ZONE * 10 ** ((np.log10(limits[k]) - b) / a)
+def max_fault_element_edge(order: int, cohesive_zone: float, limits=ERROR_LIMITS) -> float:
+    """Largest Gmsh fault edge that keeps every error within its limit."""
+    return min(cohesive_zone / (WOLLHERR_EDGE_RATIO * WOLLHERR_COHESIVE_ZONE)
+               * 10 ** ((np.log10(limits[k]) - b) / a)
                for k, (a, b) in WOLLHERR_FITS[order].items())
 
 
