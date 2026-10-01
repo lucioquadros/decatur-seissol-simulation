@@ -2,7 +2,7 @@
    Faults colored by slip rate in a volume-rendered wavefield.
 
 Run with ParaView's pvpython (e.g. on Windows) to render 0.6 s frame:
-    pvpython.exe paraview_movie.py D:\\decatur_showcase\\bob_will\\output --time 0.6
+    pvpython.exe --force-offscreen-rendering paraview_movie.py D:\\decatur_showcase\\bob_will\\output --time 0.6
 Frames go to <output>/../movie/frame_NNNN.png, then:
     ffmpeg -framerate 25 -i frame_%04d.png -c:v libx264 -pix_fmt yuv420p -crf 18 movie.mp4
 """
