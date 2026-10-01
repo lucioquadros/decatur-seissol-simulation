@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.collections import PolyCollection
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.ticker import FuncFormatter, MaxNLocator
 from scipy.signal import butter, sosfiltfilt
 
 VELOCITIES = ("v1", "v2", "v3")
@@ -158,14 +159,17 @@ def figure_receiver_section(rec: Receivers, path, title: str = "", dpi: int = 15
     axes[0].set_ylabel("Distance along the line from the epicenter (km)")
 
     ax = axes[3]
-    for (label, pgv), color in zip(rec.peak().items(), (C_HORIZONTAL, C_VERTICAL)):
+    for row, ((label, pgv), color) in enumerate(zip(rec.peak().items(),
+                                                    (C_HORIZONTAL, C_VERTICAL))):
         ax.plot(1e3 * pgv, offsets_km, color=color, linewidth=2, label=label)
-        i = int(np.argmax(pgv))
-        ax.annotate(f"{1e3 * pgv[i]:.3g}", (1e3 * pgv[i], offsets_km[i]), color=INK,
-                    fontsize=12, xytext=(5, 0), textcoords="offset points", va="center")
+        ax.annotate(f"max {1e3 * pgv.max():.3g}", (1, 1), xycoords="axes fraction",
+                    xytext=(0, -1.4 * 12 * row), textcoords="offset points",
+                    ha="right", va="top", color=color, fontsize=12)
     ax.set_title("Peak velocity", color=INK)
     ax.set_xlabel("PGV (mm/s)")
     ax.set_xlim(left=0)
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=3))
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x:.3g}"))
     ax.legend(frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.08), ncols=2)
     _style(ax)
     if title:
