@@ -57,6 +57,7 @@ evaluate_easi -m mesh.puml.hdf5 -e fault.yaml -o easi_fault
 python scripts/check_easi.py bob_will
 python scripts/plot_output.py output --vs 3160 --rho 2730
 python scripts/plot_waves.py output                    # receiver record section, surface PGV maps, receiver_pgv.csv
+pvpython scripts/paraview_movie.py output             # Paraview movie frames: faults by slip rate in the volume-rendered wavefield
 ```
 
 ## SDumont
@@ -97,6 +98,7 @@ Submit the jobs from the repository root.
 | `estimate_cost.py` | LTS clusters of a mesh, element updates, core- and node-hours, wavefield output size |
 | `plot_output.py` | moment rate, energy and performance figures, `derived_quantities.csv` |
 | `plot_waves.py` | receiver record section and peak velocity along the line, free-surface PGV maps, `receiver_pgv.csv` |
+| `paraview_movie.py` | movie frames (PNG) of a run fault split rate and wavefield. Runs with ParaView's `pvpython`, not the project venv |
 
 ## References
 
