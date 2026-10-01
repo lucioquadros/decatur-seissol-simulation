@@ -1,0 +1,76 @@
+# Nick overpressure scenario. SI units (m, s, Pa, Pa/m), angles in degrees.
+# seisclass3 showcase run: 20 m faults, surface refinement box, dense outputs
+name: nick_showcase
+
+# faults meshed, also sets the local origin (null = all faults in the inventory)
+faults: null
+
+ground_elevation: 206.0 # above sea level
+
+mesh:
+  lc_fault: 20.0
+  lc_domain: 500.0
+  dist_min: 200.0
+  dist_max: 3000.0
+  buffer: 5000.0
+  depth_buffer: 5000.0
+  # ball radius = patch.radius + margin (margin defaults to 20 m)
+  nucleation_ball: {margin: 20.0, thickness: 500.0, lc: 5.0}
+  refinement_box: {margin: 1000.0, thickness: 1000.0, lc: 65.0}
+
+# grid for material.yaml and the fault cohesion (data/material_units.csv)
+# z_min/z_max must include every interface
+material:
+  dx: 50.0
+  dz: 5.0
+  z_min: -2350.0
+  z_max: -1600.0
+  taper: 1000.0   # horizons blend into their mean elevation over this distance
+
+friction:
+  mu_s: 0.60
+  mu_d: 0.45
+  d_c: 0.02
+  cohesion: {Eau Claire: -0.5e6, Mt. Simon: -0.5e6, Argenta: -0.5e6, Precambrian: -0.1e6}
+
+stress:
+  sv: 25.0e3
+  shmax: 47.7e3
+  shmin: 22.0e3
+  pf: 9.81e3
+  shmax_azimuth: 70.0
+
+# disk centered on the fault's PCA plane: centroid + offsets (dip_offset > 0 is deeper)
+patch:
+  fault: Nick
+  strike_offset: 0.0
+  dip_offset: 87.0
+  radius: 70.0
+  normal_tol: 1.0
+  dp: 4.32e6
+  dtau: 0.0
+
+# friction forced to mu_d within radius of the patch center (0 = off), from time over t_0
+forced_rupture: {radius: 0.0, time: 0.1, t_0: 0.5}
+
+run:
+  end_time: 2.5
+  cfl: 0.5
+  lts: 2
+
+outputs:
+  fault_interval: 0.02
+  fault_mask: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+  fault_refinement: 1
+  energy_interval: 0.01
+  wavefield: 1
+  wavefield_interval: 0.02
+  wavefield_mask: [0, 0, 0, 0, 0, 0, 1, 1, 1]   # velocities only
+  wavefield_region: {margin: 1000.0}   # box region around the faults, up to the surface (null = all)
+  surface: 1
+  surface_interval: 0.01
+  surface_refinement: 1
+  receivers: 1
+  receiver_interval: 0.005
+  # line centered on the epicenter, perpendicular to the patch fault's strike
+  receiver_line: {length: 8000.0, spacing: 100.0, depth: 1.0}
