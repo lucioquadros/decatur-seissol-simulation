@@ -8,10 +8,14 @@ from pathlib import Path
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+from matplotlib import patheffects
 from matplotlib.collections import PolyCollection
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.ticker import FuncFormatter, MaxNLocator
 from scipy.signal import butter, sosfiltfilt
+
+from .geometry import fault_corners, local_centroid, strike_dip_vectors
 
 VELOCITIES = ("v1", "v2", "v3")
 COMPONENTS = {"v1": "East", "v2": "North", "v3": "Up"}
@@ -19,6 +23,7 @@ RECEIVER_FILE = re.compile(r"-receiver-(\d+)-(\d+)\.dat$")
 
 INK, INK_MUTED, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 C_HORIZONTAL, C_VERTICAL = "#2a78d6", "#eb6834"
+C_FAULT = "#eb6834"
 TEXT_SIZES = {"font.size": 13, "axes.titlesize": 15, "axes.labelsize": 14,
               "xtick.labelsize": 12.5, "ytick.labelsize": 12.5, "legend.fontsize": 13,
               "figure.titlesize": 17}
@@ -53,6 +58,45 @@ class Surface:
     def peak(self) -> dict[str, np.ndarray]:
         v1, v2, v3 = (self.data[k] for k in VELOCITIES)
         return {"horizontal": np.hypot(v1, v2).max(axis=0), "vertical": np.abs(v3).max(axis=0)}
+
+
+@dataclass
+class FaultTrace:
+    name: str
+    corners: np.ndarray             # (4, 3) top-right, top-left, bottom-left, bottom-right
+    dip: float
+    dip_dir: float
+
+    @classmethod
+    def from_inventory(cls, row: pd.Series, origin) -> "FaultTrace":
+        """Planar fault of an inventory row, in the local frame."""
+        corners = fault_corners(local_centroid(row, origin), row.strike_deg, row.dip_deg,
+                                row.extent_strike_m, row.extent_dip_m)
+        return cls(row["name"], corners, float(row.dip_deg), float(row.dip_dir_deg))
+
+
+def ruptured_faults(directory, inventory: pd.DataFrame, origin, prefix: str = "decatur",
+                    min_fraction: float = 0.5) -> list[str]:
+    """Faults with at least min_fraction of their area ruptured (default 0.5 or 50%) at the
+    last fault snapshot, each fault face assigned to the nearest inventory plane."""
+    d = Path(directory)
+    with h5py.File(d / f"{prefix}-fault_cell.h5") as cell, \
+            h5py.File(d / f"{prefix}-fault_vertex.h5") as vertex:
+        tri = vertex["mesh0/geometry"][:][cell["mesh0/connect"][:].astype(np.int64)]
+        slip, rt = cell["mesh0/ASl"][-1], cell["mesh0/RT"][-1]
+    centers = tri.mean(axis=1)
+    area = 0.5 * np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1)
+    distances = []
+    for _, row in inventory.iterrows():
+        strike, down_dip, normal = strike_dip_vectors(row.strike_deg, row.dip_deg)
+        r = centers - local_centroid(row, origin)
+        off_strike = np.maximum(np.abs(r @ strike) - row.extent_strike_m / 2, 0.0)
+        off_dip = np.maximum(np.abs(r @ down_dip) - row.extent_dip_m / 2, 0.0)
+        distances.append(np.sqrt((r @ normal) ** 2 + off_strike ** 2 + off_dip ** 2))
+    owner = np.argmin(distances, axis=0)
+    ruptured = (rt > 0) & (slip > 1e-3)
+    return [row["name"] for i, (_, row) in enumerate(inventory.iterrows())
+            if area[(owner == i) & ruptured].sum() >= min_fraction * area[owner == i].sum() > 0]
 
 
 def read_receiver_file(path) -> tuple[np.ndarray, dict[str, np.ndarray]]:
@@ -179,9 +223,25 @@ def figure_receiver_section(rec: Receivers, path, title: str = "", dpi: int = 15
     return Path(path)
 
 
+def _fault_label(fault: FaultTrace) -> str:
+    compass = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")[round(fault.dip_dir / 45.0) % 8]
+    return f"{fault.name}, dip {fault.dip:.0f}° {compass}"
+
+
+def _draw_fault(ax, fault: FaultTrace, label: str | None) -> None:
+    """Top edge of the fault and a true-scale tick to its projected bottom edge."""
+    c = fault.corners[:, :2] / 1e3
+    top, tick = c[[1, 0]], np.array([c[[0, 1]].mean(axis=0), c[[2, 3]].mean(axis=0)])
+    for xy, width, label in ((top, 3.0, label), (tick, 2.0, None)):
+        halo = [patheffects.Stroke(linewidth=width + 2.0, foreground="white"),
+                patheffects.Normal()]
+        ax.plot(*xy.T, color=C_FAULT, linewidth=width, solid_capstyle="butt",
+                path_effects=halo, label=label, zorder=4)
+
+
 @_text_sizes
 def figure_surface_pgv(surf: Surface, path, receivers: Receivers | None = None,
-                       title: str = "", dpi: int = 150) -> Path:
+                       title: str = "", dpi: int = 150, faults: list[FaultTrace] = ()) -> Path:
     """Maps of the horizontal and vertical peak ground velocity at the free surface."""
     polygons = surf.corners[:, :, :2] / 1e3
     fig, axes = plt.subplots(1, 2, figsize=(15, 7), layout="constrained")
@@ -197,6 +257,11 @@ def figure_surface_pgv(surf: Surface, path, receivers: Receivers | None = None,
         if receivers is not None:
             ax.plot(*(receivers.xyz[:, :2].T / 1e3), "o", markersize=3, markerfacecolor="none",
                     markeredgewidth=0.6, color=INK, label="receivers")
+        for i, fault in enumerate(faults):
+            legend = (_fault_label(fault) if len(faults) == 1 else
+                      f"ruptured faults ({len(faults)})" if i == 0 else None)
+            _draw_fault(ax, fault, legend)
+        if receivers is not None or faults:
             ax.legend(frameon=False, loc="upper right")
         ax.set_title(f"{label.capitalize()}, max {mm.max():.3g} mm/s", color=INK)
         ax.set_xlabel("x, east (km)")

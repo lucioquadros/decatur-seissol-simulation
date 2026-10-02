@@ -56,7 +56,7 @@ evaluate_easi -m mesh.puml.hdf5 -e material.yaml -o easi_material
 evaluate_easi -m mesh.puml.hdf5 -e fault.yaml -o easi_fault
 python scripts/check_easi.py bob_will
 python scripts/plot_output.py output --vs 3160 --rho 2730
-python scripts/plot_waves.py output                    # receiver record section, surface PGV maps, receiver_pgv.csv
+python scripts/plot_waves.py output --scenario bob_will # receiver record section, surface PGV maps with the nucleation fault (receiver_pgv.csv)
 pvpython scripts/paraview_movie.py output             # Paraview movie frames: faults by slip rate in the volume-rendered wavefield
 ```
 

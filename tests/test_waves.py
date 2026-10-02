@@ -2,7 +2,8 @@ import h5py
 import numpy as np
 import pytest
 
-from decatur.waves import (bandpass, figure_receiver_section, figure_surface_pgv,
+from decatur.geometry import fault_corners
+from decatur.waves import (FaultTrace, bandpass, figure_receiver_section, figure_surface_pgv,
                            read_receivers, read_surface)
 
 VARIABLES = ("s_xx", "s_yy", "s_zz", "s_xy", "s_yz", "s_xz", "v1", "v2", "v3")
@@ -111,6 +112,11 @@ def test_figures_are_written(line, surface, tmp_path):
     surf = read_surface(surface[0])
     assert figure_receiver_section(rec, tmp_path / "section.png").stat().st_size > 0
     assert figure_surface_pgv(surf, tmp_path / "pgv.png", rec).stat().st_size > 0
+    fault = FaultTrace("F", fault_corners([0.0, 0.0, -1500.0], 100.0, 70.0, 800.0, 600.0),
+                       70.0, 190.0)
+    for faults in ([fault], [fault, fault]):
+        assert figure_surface_pgv(surf, tmp_path / "pgv_fault.png", rec,
+                                  faults=faults).stat().st_size > 0
 
 
 def test_bandpass_keeps_the_band_and_removes_the_rest():
